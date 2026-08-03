@@ -1,0 +1,13 @@
+# Planning and design artifacts — intentionally not published.
+# The repo ships config, not the process that produced it.
+docs/
+
+# Machine-local overrides — may contain paths, tokens, personal functions.
+*.local
+zshrc.local
+
+# install.sh writes timestamped backups before replacing anything.
+*.bak-*
+
+# macOS noise
+.DS_Store
