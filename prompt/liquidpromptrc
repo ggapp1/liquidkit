@@ -1,0 +1,70 @@
+# liquidprompt configuration.
+# Installed to ~/.config/liquidpromptrc by install.sh.
+
+# --- noise reduction ---------------------------------------------------------
+LP_USER_ALWAYS=0          # hide username when it is the local user
+LP_HOSTNAME_ALWAYS=-1     # hide hostname unless connected over SSH
+LP_PATH_LENGTH=35
+LP_PATH_KEEP=2
+
+# --- signals worth having ----------------------------------------------------
+LP_ENABLE_RUNTIME=1
+LP_RUNTIME_THRESHOLD=2
+LP_ENABLE_TIME=1
+LP_TIME_ANALOG=0          # digital clock rather than the analog glyph
+# LP_TIME_ANALOG only chooses digital vs analog - it does NOT drop the seconds.
+# The format is a separate variable defaulting to "%H:%M:%S" (liquidprompt:387),
+# so removing seconds means setting it explicitly.
+LP_TIME_FORMAT="%H:%M"
+LP_ENABLE_SUDO_CACHE=1
+LP_ENABLE_GIT_UNTRACKED_FILES=1
+LP_ENABLE_JOBS=1
+
+# --- system info -------------------------------------------------------------
+# NOTE: the variable is LP_ENABLE_BATT, not LP_ENABLE_BATTERY.
+# LP_ENABLE_BATTERY appears nowhere in liquidprompt, so setting it does nothing
+# and the battery segment stays visible. This cost an hour to find once already.
+LP_ENABLE_BATT=0
+LP_ENABLE_LOAD=0
+LP_ENABLE_TEMP=0
+
+# --- virtualenv / conda ------------------------------------------------------
+LP_ENABLE_VIRTUALENV=1
+# conda activates 'base' in every shell, so showing it is pure noise.
+# Hide that one name; any other environment still displays.
+if [[ "${CONDA_DEFAULT_ENV:-}" == "base" ]]; then
+  LP_ENABLE_VIRTUALENV=0
+fi
+
+# --- powerline glyphs --------------------------------------------------------
+# These MUST contain real Private Use Area characters. They were once stripped
+# to empty strings, which silently fell back to theme defaults.
+# Requires a Nerd Font (see iterm2/Profile.json).
+POWERLINE_HARD_DIVIDER=""          # U+E0B0
+POWERLINE_SOFT_DIVIDER=""          # U+E0B1
+POWERLINE_VCS_MARKER=""            # U+E0A0
+POWERLINE_PYTHON_ENV_MARKER=" "    # U+E73C + space
+
+# --- Dracula-inspired palette ------------------------------------------------
+# Format: (FG_256 BG_256 bold underline FG_8_fallback BG_8_fallback)
+# Must be set BEFORE lp_theme is invoked.
+POWERLINE_NEUTRAL_COLOR=(252 236 0 0 7 0)
+POWERLINE_TIME_COLOR=(232 141 1 0 0 5)
+POWERLINE_JOBS_COLOR=(232 220 1 0 0 3)
+POWERLINE_USER_COLOR=(232 117 1 0 0 6)
+POWERLINE_HOST_COLOR=(232 212 1 0 0 5)
+POWERLINE_PATH_COLOR=(255 25 0 0 7 4)
+POWERLINE_PATH_SEPARATOR_COLOR=(123 25 0 0 7 6)
+POWERLINE_PATH_LAST_COLOR=(255 25 0 0 7 4)
+POWERLINE_PATH_SHORTENED_COLOR=(255 25 0 0 7 4)
+POWERLINE_PATH_VCS_COLOR=(255 25 0 0 7 4)
+POWERLINE_PYTHON_ENV_COLOR=(232 84 1 0 0 2)
+POWERLINE_NODE_ENV_COLOR=(232 215 1 0 0 3)
+POWERLINE_VCS_CLEAN_COLOR=(232 84 1 0 0 2)
+POWERLINE_VCS_DIRTY_COLOR=(232 208 1 0 0 3)
+POWERLINE_VCS_STASH_COLOR=(232 141 1 0 0 5)
+POWERLINE_RUNTIME_COLOR=(232 220 1 0 0 3)
+POWERLINE_ERROR_COLOR=(231 197 1 0 7 1)
+
+# --- theme activation --------------------------------------------------------
+LP_THEME=powerline_full
