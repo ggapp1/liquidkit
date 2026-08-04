@@ -69,15 +69,26 @@ test_history_module_sets_options() {
   # (e.g. "histignorealldups"), so `grep -c hist_ignore_all_dups` against it
   # never matches regardless of whether the option is set. Use zsh's `-o`
   # option-test operator instead, which accepts the underscored form.
-  out="$(source_module 20-history.zsh 'print -r -- $HISTSIZE; [[ -o hist_ignore_all_dups ]] && print 1 || print 0')"
-  local size; size="$(echo "$out" | head -1)"
+  #
+  # NOTE: assertions are matched by an explicit sentinel prefix, not by line
+  # position (head -1 / tail -1). On a machine with atuin installed,
+  # `eval "$(atuin init zsh ...)"` may write extra lines to stdout, which
+  # would shift positional output and make a line-indexed assertion misparse.
+  out="$(source_module 20-history.zsh 'print -r -- "HISTSIZE=$HISTSIZE"; [[ -o hist_ignore_all_dups ]] && print -r -- "DUPS=1" || print -r -- "DUPS=0"')"
+  local size; size="$(echo "$out" | grep '^HISTSIZE=' | cut -d= -f2)"
   [[ "$size" == "100000" ]] || { echo "  HISTSIZE was '$size', expected 100000"; return 1; }
-  local dups; dups="$(echo "$out" | tail -1)"
+  local dups; dups="$(echo "$out" | grep '^DUPS=' | cut -d= -f2)"
   [[ "$dups" == "1" ]] || { echo "  HIST_IGNORE_ALL_DUPS not set"; return 1; }
 }
 
 test_history_module_sources_cleanly_without_atuin() {
-  # PATH emptied of atuin: the module must degrade, not error.
-  zsh -c "set -e; DOTFILES_DIR='$REPO'; atuin() { return 127 }; source '$REPO/zsh/20-history.zsh'" \
+  # Simulate "atuin not installed" by narrowing PATH to a minimal set that
+  # cannot contain it, rather than shadowing it with a shell function.
+  # Shadowing made `command -v atuin` SUCCEED (a function is a valid
+  # command), which skipped the module's guard entirely and routed through
+  # `eval "$(atuin init ...)"` instead -- exercising neither the guard nor
+  # the degradation path this test is named for. The module must degrade,
+  # not error.
+  PATH='/usr/bin:/bin' zsh -c "set -e; DOTFILES_DIR='$REPO'; source '$REPO/zsh/20-history.zsh'" \
     || { echo "  20-history.zsh errored without atuin"; return 1; }
 }
