@@ -7,7 +7,9 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 test_dry_run_creates_nothing() {
   local tmp; tmp="$(mktemp -d)"
-  DOTFILES_INSTALL_HOME="$tmp" "$REPO/install.sh" --dry-run >/dev/null 2>&1
+  local output; output="$(DOTFILES_INSTALL_HOME="$tmp" "$REPO/install.sh" --dry-run 2>&1)"
+  echo "$output" | grep -q "would: ln -s" || {
+    echo "  dry-run output did not name a planned symlink action"; return 1; }
   local count; count="$(find "$tmp" -mindepth 1 | wc -l | tr -d ' ')"
   [[ "$count" == "0" ]] || { echo "  dry-run wrote $count entries"; return 1; }
   rm -rf "$tmp"
@@ -37,6 +39,8 @@ test_is_idempotent() {
   local tmp; tmp="$(mktemp -d)"
   DOTFILES_INSTALL_HOME="$tmp" "$REPO/install.sh" >/dev/null 2>&1
   DOTFILES_INSTALL_HOME="$tmp" "$REPO/install.sh" >/dev/null 2>&1
+  [[ -L "$tmp/.zshrc" && "$(readlink "$tmp/.zshrc")" == "$REPO/zsh/zshrc" ]] || {
+    echo "  .zshrc is not correctly symlinked after two installs"; return 1; }
   # Re-running over our own correct symlink must not manufacture a backup.
   local backups; backups="$(find "$tmp" -maxdepth 1 -name '.zshrc.bak-*' | wc -l | tr -d ' ')"
   [[ "$backups" == "0" ]] || {
@@ -48,6 +52,8 @@ test_uninstall_restores_backup() {
   local tmp; tmp="$(mktemp -d)"
   echo "ORIGINAL CONTENT" > "$tmp/.zshrc"
   DOTFILES_INSTALL_HOME="$tmp" "$REPO/install.sh" >/dev/null 2>&1
+  [[ -L "$tmp/.zshrc" ]] || {
+    echo "  .zshrc did not become a symlink after install"; return 1; }
   DOTFILES_INSTALL_HOME="$tmp" "$REPO/install.sh" --uninstall >/dev/null 2>&1
   [[ ! -L "$tmp/.zshrc" ]] || { echo "  .zshrc is still a symlink"; return 1; }
   grep -q "ORIGINAL CONTENT" "$tmp/.zshrc" || {
@@ -58,6 +64,8 @@ test_uninstall_restores_backup() {
 test_uninstall_removes_link_when_no_backup() {
   local tmp; tmp="$(mktemp -d)"
   DOTFILES_INSTALL_HOME="$tmp" "$REPO/install.sh" >/dev/null 2>&1
+  [[ -L "$tmp/.zshrc" ]] || {
+    echo "  .zshrc did not become a symlink after install"; return 1; }
   DOTFILES_INSTALL_HOME="$tmp" "$REPO/install.sh" --uninstall >/dev/null 2>&1
   [[ ! -e "$tmp/.zshrc" && ! -L "$tmp/.zshrc" ]] || {
     echo "  .zshrc should be gone entirely"; return 1; }
