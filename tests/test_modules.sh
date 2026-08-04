@@ -22,11 +22,20 @@ test_path_module_exports_brew_prefix() {
 }
 
 test_path_module_adds_no_missing_dirs() {
-  # Every PATH entry the module adds must actually exist.
+  # Only the entries THIS module adds are its responsibility. The inherited
+  # PATH routinely holds stale directories that are none of our business.
   local out
-  out="$(source_module 00-path.zsh 'for p in ${(s.:.)PATH}; do [[ -d $p ]] || print -r -- "MISSING:$p"; done')"
-  [[ -z "$(echo "$out" | grep MISSING || true)" ]] || {
-    echo "  PATH contains non-existent dirs:"; echo "$out"; return 1; }
+  out="$(zsh -c "
+    DOTFILES_DIR='$REPO'
+    typeset -A before
+    for p in \${(s.:.)PATH}; do before[\$p]=1; done
+    source '$REPO/zsh/00-path.zsh'
+    for p in \${(s.:.)PATH}; do
+      [[ -n \${before[\$p]-} ]] && continue
+      [[ -d \$p ]] || print -r -- \"MISSING:\$p\"
+    done
+  ")"
+  [[ -z "$out" ]] || { echo "  module added non-existent dirs:"; echo "$out"; return 1; }
 }
 
 test_ohmyzsh_module_sources_cleanly_without_omz() {
@@ -39,6 +48,6 @@ test_no_hardcoded_home() {
   # Global constraint: the repo must never name one user's home directory.
   local hits
   hits="$(grep -rn '/Users/ggapp' "$REPO" --include='*.zsh' --include='*.sh' \
-          --include='*.json' --include='*.md' 2>/dev/null | grep -v '^.*docs/' | grep -v '^.*\.superpowers/' | grep -v '^.*tests/' || true)"
+          --include='*.json' --include='*.md' 2>/dev/null | grep -v '^.*docs/' | grep -v '^.*\.superpowers/' | grep -v '^.*test_modules\.sh:' || true)"
   [[ -z "$hits" ]] || { echo "  hardcoded home found:"; echo "$hits"; return 1; }
 }
