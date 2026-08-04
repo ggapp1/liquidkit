@@ -1,0 +1,362 @@
+#!/usr/bin/env bash
+# Tests that individual modules are safe to source in isolation.
+set -uo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Source one module in a clean non-interactive zsh and return its exit status.
+source_module() {
+  local module="$1"; shift
+  zsh -c "set -e; DOTFILES_DIR='$REPO'; source '$REPO/zsh/$module'; $*"
+}
+
+test_path_module_sources_cleanly() {
+  source_module 00-path.zsh || { echo "  00-path.zsh failed to source"; return 1; }
+}
+
+test_path_module_exports_brew_prefix() {
+  command -v brew >/dev/null 2>&1 || return 0   # nothing to assert without brew
+  local got; got="$(source_module 00-path.zsh 'print -r -- $BREW_PREFIX')"
+  [[ -n "$got" && -d "$got" ]] || {
+    echo "  BREW_PREFIX was '$got', expected an existing directory"; return 1; }
+}
+
+test_path_module_adds_brew_prefix_bin() {
+  # Spec 5.1: $BREW_PREFIX/bin must be on PATH after this module runs.
+  #
+  # A real `brew` cannot be used to observe this: its own executable lives at
+  # $(brew --prefix)/bin/brew, so that directory is necessarily ALREADY on
+  # PATH before the module ever runs, just for `command -v brew` to have
+  # found it in the first place -- and, on this machine, /etc/zprofile's own
+  # `brew shellenv` puts it there too. A first version of this test asserted
+  # against the real `brew` and passed identically whether or not the
+  # module's own addition was even present, for exactly that reason -- it is
+  # the same "harmless on macOS" masking this whole bug had, reproduced
+  # directly. A fake `brew` stub reporting a throwaway prefix that is never
+  # on the real ambient PATH isolates what THIS module itself adds.
+  local tmp; tmp="$(mktemp -d)"
+  local stub="$tmp/stubbin"; mkdir -p "$stub"
+  local fake_prefix="$tmp/fake-brew-prefix"; mkdir -p "$fake_prefix/bin"
+  cat > "$stub/brew" <<EOF
+#!/bin/sh
+echo "$fake_prefix"
+EOF
+  chmod +x "$stub/brew"
+  local out
+  out="$(PATH="$stub:/usr/bin:/bin" zsh -f -c "DOTFILES_DIR='$REPO'; source '$REPO/zsh/00-path.zsh'; print -r -- \$path")"
+  rm -rf "$tmp"
+  [[ "$out" == *"$fake_prefix/bin"* ]] || {
+    echo "  \$BREW_PREFIX/bin ($fake_prefix/bin) is not on \$path after sourcing 00-path.zsh: $out"; return 1; }
+}
+
+test_path_module_adds_no_missing_dirs() {
+  # Only the entries THIS module adds are its responsibility. The inherited
+  # PATH routinely holds stale directories that are none of our business.
+  local out
+  out="$(zsh -c "
+    DOTFILES_DIR='$REPO'
+    typeset -A before
+    for p in \${(s.:.)PATH}; do before[\$p]=1; done
+    source '$REPO/zsh/00-path.zsh'
+    for p in \${(s.:.)PATH}; do
+      [[ -n \${before[\$p]-} ]] && continue
+      [[ -d \$p ]] || print -r -- \"MISSING:\$p\"
+    done
+  ")"
+  [[ -z "$out" ]] || { echo "  module added non-existent dirs:"; echo "$out"; return 1; }
+}
+
+test_ohmyzsh_module_sources_cleanly_without_omz() {
+  # With ZSH pointing nowhere, the module must no-op rather than error.
+  zsh -c "set -e; DOTFILES_DIR='$REPO'; ZSH=/nonexistent; source '$REPO/zsh/10-ohmyzsh.zsh'" \
+    || { echo "  10-ohmyzsh.zsh errored when oh-my-zsh is absent"; return 1; }
+}
+
+test_no_hardcoded_home() {
+  # Global constraint: the repo must never name one user's home directory.
+  local hits
+  hits="$(grep -rn '/Users/ggapp' "$REPO" --include='*.zsh' --include='*.sh' \
+          --include='*.json' --include='*.md' 2>/dev/null | grep -v '^.*docs/' | grep -v '^.*\.superpowers/' | grep -v '^.*test_modules\.sh:' || true)"
+  [[ -z "$hits" ]] || { echo "  hardcoded home found:"; echo "$hits"; return 1; }
+}
+
+test_fzf_module_precedes_history_module() {
+  # The Ctrl-R ordering constraint, asserted structurally so a future rename
+  # or renumber trips the test rather than silently breaking atuin.
+  local fzf_num hist_num
+  fzf_num="$(basename "$REPO"/zsh/*-fzf.zsh | cut -d- -f1)"
+  hist_num="$(basename "$REPO"/zsh/*-history.zsh | cut -d- -f1)"
+  [[ "$fzf_num" -lt "$hist_num" ]] || {
+    echo "  fzf module ($fzf_num) must load before history ($hist_num): both bind Ctrl-R"
+    return 1; }
+}
+
+test_completion_module_precedes_prompt_module() {
+  # README's load-order constraint #2: "30-completion.zsh after compinit,
+  # before autosuggestions". zsh-autosuggestions is sourced from
+  # 60-prompt.zsh (see its own header comment: "zsh-autosuggestions must
+  # precede zsh-syntax-highlighting; highlighting is last"), so the
+  # structural form of this constraint is that the completion module's
+  # number precedes the prompt module's. Asserted the same way as constraint
+  # #1 above, so a future rename or renumber trips this test rather than
+  # silently letting fzf-tab wrap the completion widget after autosuggestions
+  # has already wrapped it.
+  local completion_num prompt_num
+  completion_num="$(basename "$REPO"/zsh/*-completion.zsh | cut -d- -f1)"
+  prompt_num="$(basename "$REPO"/zsh/*-prompt.zsh | cut -d- -f1)"
+  [[ "$completion_num" -lt "$prompt_num" ]] || {
+    echo "  completion module ($completion_num) must load before prompt ($prompt_num): fzf-tab must wrap the completion widget before autosuggestions does"
+    return 1; }
+}
+
+test_prompt_module_is_highest_numbered() {
+  # README's load-order constraint #3: "60-prompt.zsh last" -- the transient
+  # prompt binds zle-line-init after syntax highlighting is in place, so
+  # nothing may load after it. Asserted structurally against every module
+  # that actually loads (zsh/zshrc's own [0-9][0-9]-*.zsh glob), so adding a
+  # new module with a higher number trips this test instead of silently
+  # breaking the transient prompt.
+  local prompt_num highest
+  prompt_num="$(basename "$REPO"/zsh/*-prompt.zsh | cut -d- -f1)"
+  highest="$(basename -a "$REPO"/zsh/[0-9][0-9]-*.zsh | cut -d- -f1 | sort -n | tail -1)"
+  [[ "$prompt_num" == "$highest" ]] || {
+    echo "  prompt module ($prompt_num) is not the highest-numbered module (that's $highest): 60-prompt.zsh must load last"
+    return 1; }
+}
+
+test_fzf_module_sources_cleanly_without_tools() {
+  # 15-fzf.zsh was the only module with no "sources cleanly" test, which is
+  # exactly why its trailing `command -v eza >/dev/null 2>&1 && export ...`
+  # guard (last statement in the file, so its exit status becomes the exit
+  # status of `source 15-fzf.zsh` itself) survived as long as it did.
+  #
+  # Reproducing the bug requires fzf to be seen as present: the module's very
+  # first line is `command -v fzf >/dev/null 2>&1 || return 0`, so with fzf
+  # genuinely absent the module no-ops before ever reaching the buggy line
+  # below, and a PATH that hides fzf too would never exercise it. A shell
+  # function stands in for the real fzf binary -- `command -v` in zsh reports
+  # functions exactly like it reports external commands (verified directly:
+  # `zsh -f -c 'fzf() { :; }; command -v fzf'` succeeds). eza, bat and fd are
+  # genuinely absent: PATH is narrowed to bare system directories, and `zsh -f`
+  # skips rc files that might otherwise reintroduce them (same rationale as
+  # test_aliases_module_sources_cleanly_with_nothing_installed's PATH-narrowing).
+  local out
+  out="$(PATH='/usr/bin:/bin' zsh -f -c "set -e; DOTFILES_DIR='$REPO'; fzf() { :; }; source '$REPO/zsh/15-fzf.zsh'; echo REACHED")"
+  [[ "$out" == "REACHED" ]] || {
+    echo "  15-fzf.zsh aborted the sourcing shell when fzf is present but eza/bat/fd are absent (got '$out')"; return 1; }
+}
+
+test_history_module_sets_options() {
+  local out
+  # NOTE: bare `setopt` prints option names with underscores stripped
+  # (e.g. "histignorealldups"), so `grep -c hist_ignore_all_dups` against it
+  # never matches regardless of whether the option is set. Use zsh's `-o`
+  # option-test operator instead, which accepts the underscored form.
+  #
+  # NOTE: assertions are matched by an explicit sentinel prefix, not by line
+  # position (head -1 / tail -1). On a machine with atuin installed,
+  # `eval "$(atuin init zsh ...)"` may write extra lines to stdout, which
+  # would shift positional output and make a line-indexed assertion misparse.
+  out="$(source_module 20-history.zsh 'print -r -- "HISTSIZE=$HISTSIZE"; [[ -o hist_ignore_all_dups ]] && print -r -- "DUPS=1" || print -r -- "DUPS=0"')"
+  local size; size="$(echo "$out" | grep '^HISTSIZE=' | cut -d= -f2)"
+  [[ "$size" == "100000" ]] || { echo "  HISTSIZE was '$size', expected 100000"; return 1; }
+  local dups; dups="$(echo "$out" | grep '^DUPS=' | cut -d= -f2)"
+  [[ "$dups" == "1" ]] || { echo "  HIST_IGNORE_ALL_DUPS not set"; return 1; }
+}
+
+test_history_module_sources_cleanly_without_atuin() {
+  # Simulate "atuin not installed" by narrowing PATH to a minimal set that
+  # cannot contain it, rather than shadowing it with a shell function.
+  # Shadowing made `command -v atuin` SUCCEED (a function is a valid
+  # command), which skipped the module's guard entirely and routed through
+  # `eval "$(atuin init ...)"` instead -- exercising neither the guard nor
+  # the degradation path this test is named for. The module must degrade,
+  # not error.
+  #
+  # NOTE: exit status alone cannot detect the guard being deleted. Without
+  # `command -v atuin >/dev/null 2>&1 || return 0`, `eval "$(atuin init zsh
+  # ...)"` with atuin absent from PATH still exits 0 under `set -e` -- the
+  # failed command substitution inside `eval "$(...)"` yields an empty
+  # string, and `eval ""` is a harmless no-op (same gap as zoxide's, see
+  # test_navigation.sh's test_navigation_sources_cleanly_without_zoxide).
+  # What the guard actually buys is silence: without it, zsh prints
+  # "command not found: atuin" to stderr on every shell start. Assert that.
+  PATH='/usr/bin:/bin' zsh -c "set -e; DOTFILES_DIR='$REPO'; source '$REPO/zsh/20-history.zsh'" \
+    || { echo "  20-history.zsh errored without atuin"; return 1; }
+  local err
+  err="$(PATH='/usr/bin:/bin' zsh -c "DOTFILES_DIR='$REPO'; source '$REPO/zsh/20-history.zsh'" 2>&1 1>/dev/null)"
+  [[ -z "$err" ]] || {
+    echo "  sourcing without atuin printed to stderr (the guard should have skipped it): $err"; return 1; }
+}
+
+test_prompt_module_sources_cleanly_without_liquidprompt() {
+  # With LIQUIDPROMPT_DIR pointing nowhere, the module must no-op rather than
+  # error. This is the module's only guard against `set -e` propagating a
+  # failed `[[ ... ]]` test out of the sourcing shell -- a bare `return` here
+  # (rather than `return 0`) would silently abort whatever sources it, the
+  # exact bug class already found and fixed in the path/history/oh-my-zsh
+  # modules. Run non-interactively (zsh -c) so the `$- == *i*` half of the
+  # guard is false too, exercising the no-op path the same way a script
+  # (rather than an interactive login shell) would hit it.
+  zsh -c "set -e; DOTFILES_DIR='$REPO'; LIQUIDPROMPT_DIR=/nonexistent; source '$REPO/zsh/60-prompt.zsh'; echo REACHED_AFTER_SOURCE" \
+    | grep -q '^REACHED_AFTER_SOURCE$' \
+    || { echo "  60-prompt.zsh errored (or aborted the script) when liquidprompt is absent"; return 1; }
+}
+
+test_completion_module_sources_cleanly_without_fzf_tab() {
+  zsh -c "set -e; DOTFILES_DIR='$REPO'; source '$REPO/zsh/30-completion.zsh'" \
+    || { echo "  30-completion.zsh errored without fzf-tab"; return 1; }
+}
+
+test_completion_module_runs_compinit() {
+  local out
+  out="$(source_module 30-completion.zsh 'print -r -- ${+functions[compdef]}')"
+  [[ "$out" == "1" ]] || { echo "  compinit did not run (compdef undefined)"; return 1; }
+}
+
+# The four tests below distinguish which branch (`compinit` full vs.
+# `compinit -C` fast) actually fires. Both branches leave compdef defined,
+# so a compdef-only assertion (as above) cannot tell them apart -- that gap
+# is exactly what let the once-a-day freshness check silently regress to
+# "always full" when EXTENDED_GLOB wasn't armed.
+#
+# Observation strategy: prepend a scratch directory to $fpath containing a
+# fake `compinit` autoload file that just records its own arguments. Since
+# the module's own `autoload -Uz compinit` resolves lazily against $fpath at
+# call time, this intercepts the module's *real* branch-selection call
+# (`compinit` vs `compinit -C`) directly -- not an inference from a side
+# effect like compdef being defined, and not a reimplementation of the
+# condition elsewhere that could drift from the real file.
+#
+# An earlier version of these tests used `zsh -x` to trace the anonymous
+# function's call sites instead. That correctly distinguished the branches
+# in isolation, but the FULL compinit path scans the real system fpath
+# (thousands of files under /usr/share/zsh/*/functions), and tracing that
+# multiplies the cost enormously -- one test run alone exceeded the 120s
+# harness timeout. The interception approach never runs the real compinit
+# body at all, so it is fast regardless of which branch fires. Each test
+# uses a scratch $HOME (never the real one) so the fixture's .zcompdump
+# mtime/existence is fully controlled.
+_completion_module_observe_compinit_call() {
+  # Sources 30-completion.zsh with a fake `compinit` shadowing the real one
+  # via $fpath, and prints exactly what it was called with:
+  #   "CALLED:"      -- compinit invoked with no arguments (full path)
+  #   "CALLED:-C"    -- compinit invoked with -C (fast path)
+  #   "NOT-CALLED"   -- compinit was never invoked at all
+  # $1: shell command to run against $tmp to set up (or omit) .zcompdump
+  local tmp; tmp="$(mktemp -d)"
+  local fake="$tmp/fakefpath"; mkdir -p "$fake"
+  printf 'print -r -- "CALLED:$*" >> "%s/calls.log"\n' "$tmp" > "$fake/compinit"
+  eval "$1"
+  local err
+  err="$(HOME="$tmp" zsh -c "set -e; fpath=('$fake' \$fpath); DOTFILES_DIR='$REPO'; source '$REPO/zsh/30-completion.zsh'" 2>&1 1>/dev/null)"
+  if [[ -n "$err" ]]; then
+    echo "  30-completion.zsh errored during observation: $err"
+  fi
+  if [[ -s "$tmp/calls.log" ]]; then
+    cat "$tmp/calls.log"
+  else
+    echo "NOT-CALLED"
+  fi
+  rm -rf "$tmp"
+}
+
+test_completion_module_takes_fast_path_for_fresh_dump() {
+  local call; call="$(_completion_module_observe_compinit_call 'touch "$tmp/.zcompdump"')"
+  [[ "$call" == "CALLED:-C" ]] || {
+    echo "  fresh .zcompdump: expected 'CALLED:-C', got '$call'"; return 1; }
+}
+
+test_completion_module_takes_full_path_for_stale_dump() {
+  local call
+  call="$(_completion_module_observe_compinit_call 'touch -t 202001010000 "$tmp/.zcompdump"')"   # mtime far in the past: >24h stale
+  [[ "$call" == "CALLED:" ]] || {
+    echo "  stale .zcompdump: expected 'CALLED:' (full compinit, no args), got '$call'"; return 1; }
+}
+
+test_completion_module_takes_full_path_for_missing_dump() {
+  local call; call="$(_completion_module_observe_compinit_call 'true')"   # no .zcompdump created at all
+  [[ "$call" == "CALLED:" ]] || {
+    echo "  missing .zcompdump: expected 'CALLED:' (full compinit, no args), got '$call'"; return 1; }
+}
+
+test_completion_module_does_not_leak_extended_glob() {
+  local tmp; tmp="$(mktemp -d)"
+  touch "$tmp/.zcompdump"
+  local out
+  out="$(HOME="$tmp" zsh -c "set -e; DOTFILES_DIR='$REPO'; source '$REPO/zsh/30-completion.zsh'; [[ -o extendedglob ]] && print LEAKED || print OK")"
+  rm -rf "$tmp"
+  [[ "$out" == "OK" ]] || { echo "  EXTENDED_GLOB leaked into the sourcing shell"; return 1; }
+}
+
+test_aliases_do_not_shadow_ohmyzsh_git() {
+  # omz's git plugin owns these. Redefining them would fragment muscle memory.
+  local shadowed
+  shadowed="$(grep -oE "^alias (gst|gaa|gcmsg|gp|gd|glo|gco|gl)=" "$REPO/zsh/50-aliases.zsh" || true)"
+  [[ -z "$shadowed" ]] || {
+    echo "  redefines oh-my-zsh git aliases:"; echo "$shadowed"; return 1; }
+}
+
+test_aliases_module_defines_flutter_shortcuts() {
+  local out
+  out="$(zsh -c "
+    DOTFILES_DIR='$REPO'
+    flutter() { : }              # pretend flutter is installed
+    source '$REPO/zsh/50-aliases.zsh'
+    alias fr fc fpg fbi 2>&1
+  ")"
+  local a
+  for a in fr fc fpg fbi; do
+    echo "$out" | grep -q "^$a=" || { echo "  alias $a missing"; return 1; }
+  done
+  return 0
+}
+
+test_brewfile_lists_every_optional_tool() {
+  # install.sh's doctor points users at the Brewfile; it must actually cover
+  # everything the doctor reports as missing.
+  local tool
+  for tool in atuin fzf zoxide eza bat fd jq; do
+    grep -q "\"$tool\"" "$REPO/Brewfile" || {
+      echo "  Brewfile does not list $tool"; return 1; }
+  done
+  return 0
+}
+
+test_readme_documents_ohmyzsh_git_aliases() {
+  # 50-aliases.zsh deliberately defines no git aliases, so the README is the
+  # only place a user learns that gst/gaa/gp already exist.
+  #
+  # Matched against an actual markdown table row (`| `name` |`), not a bare
+  # backtick-wrapped substring anywhere in the file: the README's own "prefer
+  # gaa over git add *" callout also mentions `gaa` in backticks, so a
+  # substring-only check would keep passing even if the alias table row
+  # itself were deleted -- verified by deleting just that row and confirming
+  # a bare-substring version of this assertion still (wrongly) passed.
+  local a
+  for a in gst gaa gcmsg gp; do
+    grep -qE '\| `'"$a"'` \|' "$REPO/README.md" || {
+      echo "  README does not document $a in the git alias table"; return 1; }
+  done
+  return 0
+}
+
+test_aliases_module_sources_cleanly_with_nothing_installed() {
+  # None of eza, bat, flutter or npm resolve on this PATH, so every guard in
+  # the module is off. This exercises the "guard is the file's last
+  # top-level statement" hazard directly: if any guard is a bare
+  # `command -v X && alias ...` instead of an if/fi, and it happens to be
+  # the last statement in the file, that statement's own (nonzero) exit
+  # status becomes `source`'s exit status -- which trips a caller's
+  # `set -e` and silently aborts everything sourced after this module. The
+  # module must degrade fully, not abort the sourcing shell.
+  #
+  # `zsh -f` (skip rc files) is required here, not optional: this machine's
+  # ~/.zshenv unconditionally prepends a flutter bin directory to PATH on
+  # every zsh invocation -- including plain `zsh -c` -- so without `-f` this
+  # test cannot actually deny flutter and would produce a false pass.
+  local out
+  out="$(PATH='/usr/bin:/bin' zsh -f -c "set -e; DOTFILES_DIR='$REPO'; source '$REPO/zsh/50-aliases.zsh'; echo REACHED")"
+  [[ "$out" == "REACHED" ]] || {
+    echo "  50-aliases.zsh aborted the sourcing shell when nothing was installed (got '$out')"; return 1; }
+}

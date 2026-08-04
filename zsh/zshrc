@@ -1,0 +1,30 @@
+# Entry point. Symlinked to ~/.zshrc by install.sh.
+#
+# Resolve this file's own directory, following symlinks, so the repo can live
+# anywhere. ${(%):-%N} is the path of the file currently being sourced;
+# :A makes it absolute and resolves symlinks; :h:h climbs zsh/zshrc -> zsh -> root.
+: ${DOTFILES_DIR:="${${(%):-%N}:A:h:h}"}
+export DOTFILES_DIR
+
+# Numeric prefixes encode load order. See "Load order" in README before reordering.
+# (N) is NULL_GLOB: an empty match yields nothing instead of an error.
+for _dotfiles_module in "$DOTFILES_DIR"/zsh/[0-9][0-9]-*.zsh(N); do
+  source "$_dotfiles_module"
+done
+unset _dotfiles_module
+
+# Machine-local overrides. Never in the repo: may hold private paths or tokens.
+#
+# Deliberately an if/fi, not `[[ -r ... ]] && source ...`: this is the last
+# statement in the file, so its exit status becomes the exit status of
+# `source zshrc` itself. The && form is false (nonzero) whenever
+# .zshrc.local is merely absent — the common case — which would make
+# sourcing this file look like a failure to any caller that checks $?
+# (harmless interactively, but wrong under `zsh -c "source zshrc"` in
+# tests/CI, and it would mask a genuine failure from a module above).
+# An if/fi with no else is well-defined to exit 0 when the condition is
+# false, so a real error later in the chain can still propagate. Do not
+# "simplify" this back to `&&` — that reintroduces the leak.
+if [[ -r "$HOME/.zshrc.local" ]]; then
+  source "$HOME/.zshrc.local"
+fi
