@@ -29,4 +29,14 @@ if command -v flutter >/dev/null 2>&1; then
 fi
 
 # --- npm (201 invocations) ---------------------------------------------------
-command -v npm >/dev/null 2>&1 && alias nrd='npm run dev'   # 182
+#
+# Deliberately an if/fi, not `command -v npm ... && alias ...`: this is the
+# last statement in the file, so its exit status becomes the exit status of
+# `source 50-aliases.zsh` itself (same bug class zsh/zshrc:18-27 already
+# warns about for its own trailing conditional). The && form is false
+# whenever npm is merely absent, which would trip a caller's `set -e` and
+# silently abort everything sourced after this module. Do not "simplify"
+# this back to `&&` -- that reintroduces the abort.
+if command -v npm >/dev/null 2>&1; then
+  alias nrd='npm run dev'   # 182
+fi

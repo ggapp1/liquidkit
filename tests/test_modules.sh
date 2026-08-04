@@ -228,3 +228,23 @@ test_aliases_module_defines_flutter_shortcuts() {
   done
   return 0
 }
+
+test_aliases_module_sources_cleanly_with_nothing_installed() {
+  # None of eza, bat, flutter or npm resolve on this PATH, so every guard in
+  # the module is off. This exercises the "guard is the file's last
+  # top-level statement" hazard directly: if any guard is a bare
+  # `command -v X && alias ...` instead of an if/fi, and it happens to be
+  # the last statement in the file, that statement's own (nonzero) exit
+  # status becomes `source`'s exit status -- which trips a caller's
+  # `set -e` and silently aborts everything sourced after this module. The
+  # module must degrade fully, not abort the sourcing shell.
+  #
+  # `zsh -f` (skip rc files) is required here, not optional: this machine's
+  # ~/.zshenv unconditionally prepends a flutter bin directory to PATH on
+  # every zsh invocation -- including plain `zsh -c` -- so without `-f` this
+  # test cannot actually deny flutter and would produce a false pass.
+  local out
+  out="$(PATH='/usr/bin:/bin' zsh -f -c "set -e; DOTFILES_DIR='$REPO'; source '$REPO/zsh/50-aliases.zsh'; echo REACHED")"
+  [[ "$out" == "REACHED" ]] || {
+    echo "  50-aliases.zsh aborted the sourcing shell when nothing was installed (got '$out')"; return 1; }
+}
