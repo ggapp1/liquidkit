@@ -1,6 +1,6 @@
 # liquidkit
 
-**A two-line transient zsh prompt for [liquidprompt](https://github.com/liquidprompt/liquidprompt), on macOS** — plus `atuin`, `fzf-tab` and `zoxide`, wired in the right order.
+**A two-line transient zsh prompt for [liquidprompt](https://github.com/liquidprompt/liquidprompt), on macOS**, plus `atuin`, `fzf-tab` and `zoxide`, wired in the right order.
 
 [![ci](https://github.com/ggapp1/liquidkit/actions/workflows/ci.yml/badge.svg)](https://github.com/ggapp1/liquidkit/actions/workflows/ci.yml)
 ![platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
@@ -12,18 +12,19 @@ config and still get a prompt that gets out of the way. Around that sits a
 complete zsh setup: `eza`, `bat`, a Claude Code statusline, an installer that
 backs up everything it touches, and 75 tests.
 
+![The liquidkit prompt: a powerline bar showing the time, a shortened path, the
+git branch with its dirty count, and the last command's runtime — with a bare ❯
+input mark on the line below.](assets/prompt.png)
+
+Once a command runs, that whole bar collapses to just the mark, so scrollback
+reads as what you did rather than forty repetitions of where you were:
+
 ```
- 19:40  ~/Projects/saas  main ✚2 ⇡1  2.4s
 ❯ npm run build
+  ...output...
+❯ git push
+  ...output...
 ```
-
-…and once that command runs, its prompt collapses to just `❯ npm run build`, so
-a long session's scrollback stays readable instead of repeating a full status
-bar forty times.
-
-<!-- Add a real screenshot here — it is the single biggest thing you can do for
-     adoption. A terminal recording (asciinema / vhs) showing the collapse in
-     action is better still. Colour is the product; ASCII can't show it. -->
 
 ## Why
 
