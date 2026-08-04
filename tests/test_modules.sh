@@ -89,8 +89,21 @@ test_history_module_sources_cleanly_without_atuin() {
   # `eval "$(atuin init ...)"` instead -- exercising neither the guard nor
   # the degradation path this test is named for. The module must degrade,
   # not error.
+  #
+  # NOTE: exit status alone cannot detect the guard being deleted. Without
+  # `command -v atuin >/dev/null 2>&1 || return 0`, `eval "$(atuin init zsh
+  # ...)"` with atuin absent from PATH still exits 0 under `set -e` -- the
+  # failed command substitution inside `eval "$(...)"` yields an empty
+  # string, and `eval ""` is a harmless no-op (same gap as zoxide's, see
+  # test_navigation.sh's test_navigation_sources_cleanly_without_zoxide).
+  # What the guard actually buys is silence: without it, zsh prints
+  # "command not found: atuin" to stderr on every shell start. Assert that.
   PATH='/usr/bin:/bin' zsh -c "set -e; DOTFILES_DIR='$REPO'; source '$REPO/zsh/20-history.zsh'" \
     || { echo "  20-history.zsh errored without atuin"; return 1; }
+  local err
+  err="$(PATH='/usr/bin:/bin' zsh -c "DOTFILES_DIR='$REPO'; source '$REPO/zsh/20-history.zsh'" 2>&1 1>/dev/null)"
+  [[ -z "$err" ]] || {
+    echo "  sourcing without atuin printed to stderr (the guard should have skipped it): $err"; return 1; }
 }
 
 test_prompt_module_sources_cleanly_without_liquidprompt() {
@@ -191,4 +204,27 @@ test_completion_module_does_not_leak_extended_glob() {
   out="$(HOME="$tmp" zsh -c "set -e; DOTFILES_DIR='$REPO'; source '$REPO/zsh/30-completion.zsh'; [[ -o extendedglob ]] && print LEAKED || print OK")"
   rm -rf "$tmp"
   [[ "$out" == "OK" ]] || { echo "  EXTENDED_GLOB leaked into the sourcing shell"; return 1; }
+}
+
+test_aliases_do_not_shadow_ohmyzsh_git() {
+  # omz's git plugin owns these. Redefining them would fragment muscle memory.
+  local shadowed
+  shadowed="$(grep -oE "^alias (gst|gaa|gcmsg|gp|gd|glo|gco|gl)=" "$REPO/zsh/50-aliases.zsh" || true)"
+  [[ -z "$shadowed" ]] || {
+    echo "  redefines oh-my-zsh git aliases:"; echo "$shadowed"; return 1; }
+}
+
+test_aliases_module_defines_flutter_shortcuts() {
+  local out
+  out="$(zsh -c "
+    DOTFILES_DIR='$REPO'
+    flutter() { : }              # pretend flutter is installed
+    source '$REPO/zsh/50-aliases.zsh'
+    alias fr fc fpg fbi 2>&1
+  ")"
+  local a
+  for a in fr fc fpg fbi; do
+    echo "$out" | grep -q "^$a=" || { echo "  alias $a missing"; return 1; }
+  done
+  return 0
 }
