@@ -177,13 +177,7 @@ Hide the cost segment with a config file at
 LIQUIDKIT_STATUSLINE_COST=0
 ```
 
-Register the script by **absolute path, with no environment prefix**:
-
-```json
-{ "statusLine": { "type": "command", "command": "/Users/you/.claude/statusline.sh" } }
-```
-
-> A prefixed form like `"VAR=0 ~/.claude/statusline.sh"` only works if the host
+> The absolute path above is deliberate. A prefixed form like `"VAR=0 ~/.claude/statusline.sh"` only works if the host
 > runs the command through a shell. Executed directly it fails outright — `VAR=0`
 > is looked up as a program name, and `~` is never expanded. The config file
 > keeps the registered command free of anything that can go wrong. Environment
@@ -255,7 +249,7 @@ read the Optional tools report.
 ## Tests
 
 ```bash
-./tests/run.sh    # 75 tests, ~70s
+./tests/run.sh    # 82 tests, ~70s
 ```
 
 Interactive prompt behaviour runs against a **real pty**
