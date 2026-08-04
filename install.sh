@@ -195,42 +195,67 @@ import_atuin_history() {
   # start, and importing repeatedly would be slow and pointless.
   command -v atuin >/dev/null 2>&1 || return 0
 
+  # Where atuin resolves its own data and config directories from. This is
+  # deliberately its own rule, separate from $CONFIG_HOME above (which is
+  # for liquidpromptrc's symlink target, a plain backup-protected `ln -s`
+  # that should always land wherever $XDG_CONFIG_HOME says, in every mode --
+  # a test can safely exercise that by setting XDG_CONFIG_HOME directly,
+  # since a symlink is fully reversible). atuin's import is different: it
+  # spawns an opaque external process that scans and writes a real,
+  # potentially large database, so which XDG values it is allowed to see
+  # must depend on which mode this actually is, and the SAME resolved
+  # values must be used for both the existence check below and the `env`
+  # overrides on the import, so the two can never drift apart again:
+  #
+  #   - real install (TARGET_HOME == $HOME, i.e. DOTFILES_INSTALL_HOME
+  #     unset, or -- as in this file's own tests -- deliberately set to the
+  #     same throwaway value as HOME): honour the ambient
+  #     XDG_DATA_HOME/XDG_CONFIG_HOME, because that is genuinely where this
+  #     user's atuin lives. Forcing $TARGET_HOME/.local/share instead (what
+  #     this script used to do unconditionally on the write side) means a
+  #     user with a customised XDG_DATA_HOME never gets their history
+  #     imported to where their real atuin actually reads from -- it
+  #     silently never arrives.
+  #   - retargeted (TARGET_HOME != $HOME, i.e. DOTFILES_INSTALL_HOME points
+  #     somewhere else -- every test in tests/test_install.sh): ignore the
+  #     ambient XDG vars entirely and scope everything under $TARGET_HOME.
+  #     Before this fix, only the write side did this; the existence check
+  #     above it still read the ambient XDG_DATA_HOME unconditionally. The
+  #     two disagreed, so the check never found what the write had actually
+  #     created, and two consecutive retargeted `install.sh` runs (with an
+  #     ambient XDG_DATA_HOME set) invoked `atuin import auto` twice --
+  #     reproduced directly.
+  local data_home config_home
+  if [[ "$TARGET_HOME" == "$HOME" ]]; then
+    data_home="${XDG_DATA_HOME:-$TARGET_HOME/.local/share}"
+    config_home="${XDG_CONFIG_HOME:-$TARGET_HOME/.config}"
+  else
+    data_home="$TARGET_HOME/.local/share"
+    config_home="$TARGET_HOME/.config"
+  fi
+
   # atuin stores its database under this directory; its presence means a prior
   # import already happened.
-  local db="${XDG_DATA_HOME:-$TARGET_HOME/.local/share}/atuin/history.db"
+  local db="$data_home/atuin/history.db"
   if [[ -e "$db" ]]; then
     log "  ok: atuin history already imported"
     return 0
   fi
 
   log "  import: existing shell history into atuin"
-  # HOME, XDG_DATA_HOME and XDG_CONFIG_HOME are all overridden for this
-  # invocation only: atuin resolves its own config/data directories, and the
-  # shell history files it scans, from $HOME -- not from $TARGET_HOME, which
-  # is purely this script's own bookkeeping variable and nothing atuin has
-  # ever heard of. Without this override, `DOTFILES_INSTALL_HOME=<tmp>
-  # ./install.sh` (exactly what every test in tests/test_install.sh does)
-  # would still import into the REAL $HOME's atuin database, silently
-  # mutating a developer's actual shell history on every test run --
-  # precisely what that file's own header comment promises never happens.
-  #
-  # HOME alone is not enough: atuin resolves its data dir from $XDG_DATA_HOME
-  # first and only falls back to $HOME/.local/share when that is unset (the
-  # idempotency check just above already honours this, via
-  # ${XDG_DATA_HOME:-$TARGET_HOME/.local/share}). A developer who has
-  # XDG_DATA_HOME set in their real environment would otherwise still have
-  # the real `atuin import auto` invoked against their real database here,
-  # even under DOTFILES_INSTALL_HOME -- the exact regression this override
-  # exists to prevent, just one environment variable further down atuin's own
-  # resolution order. XDG_CONFIG_HOME is pinned alongside it for the same
-  # reason: atuin also reads its config (and, in principle, could be pointed
-  # at a different db path from there) from $XDG_CONFIG_HOME first. For a
-  # real install, TARGET_HOME already equals $HOME and neither XDG variable
-  # is being redirected away from its default, so this override changes
-  # nothing.
+  # HOME is overridden for this invocation only, unconditionally in both
+  # modes: atuin resolves the shell history files it scans from $HOME, not
+  # from $TARGET_HOME, which is purely this script's own bookkeeping
+  # variable and nothing atuin has ever heard of. Without this override,
+  # `DOTFILES_INSTALL_HOME=<tmp> ./install.sh` (exactly what every test in
+  # tests/test_install.sh does) would still scan the REAL $HOME's shell
+  # history, silently mutating a developer's actual atuin database on every
+  # test run -- precisely what that file's own header comment promises
+  # never happens. For a real install, TARGET_HOME already equals $HOME, so
+  # this override changes nothing.
   act env HOME="$TARGET_HOME" \
-          XDG_DATA_HOME="$TARGET_HOME/.local/share" \
-          XDG_CONFIG_HOME="$TARGET_HOME/.config" \
+          XDG_DATA_HOME="$data_home" \
+          XDG_CONFIG_HOME="$config_home" \
           atuin import auto \
     || log "  warn: atuin import failed; rerun manually with: atuin import auto"
   return 0
