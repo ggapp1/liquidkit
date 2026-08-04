@@ -67,4 +67,21 @@ POWERLINE_RUNTIME_COLOR=(232 220 1 0 0 3)
 POWERLINE_ERROR_COLOR=(231 197 1 0 7 1)
 
 # --- theme activation --------------------------------------------------------
+# LP_THEME alone is NOT enough. liquidprompt calls `lp_theme "$LP_THEME"` for us,
+# but that call is wrapped in `>/dev/null 2>&1` and the powerline theme's
+# activation function only exists once its theme file has been sourced. Set
+# LP_THEME without sourcing the file and the activation fails SILENTLY: no bar,
+# no colours, just the bare input mark, with nothing printed to say why.
+_lp_powerline_theme="${LIQUIDPROMPT_DIR:-$HOME/.local/share/liquidprompt}/themes/powerline/powerline.theme"
+if [[ -r "$_lp_powerline_theme" ]]; then
+  source "$_lp_powerline_theme"
+  # Setting LP_THEME is NOT sufficient on its own, and sourcing the theme file
+  # is not either. lp_theme must be called explicitly here, while the config is
+  # being sourced. Without this call liquidprompt falls back to its default
+  # bracket theme -- `[user:/path]` -- and every POWERLINE_* colour above is
+  # silently ignored, with nothing printed to explain why.
+  lp_theme powerline_full
+fi
+unset _lp_powerline_theme
+
 LP_THEME=powerline_full
