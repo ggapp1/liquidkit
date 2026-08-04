@@ -61,12 +61,17 @@ def test_two_line_can_be_disabled():
 
 
 def test_commands_still_run():
+    # A pty echoes typed keystrokes (and ZLE redraws them as-you-type) whether or
+    # not the command is ever executed, so asserting a literal that also appears
+    # in the sent text proves nothing (see tests/test_harness.py). Force real
+    # shell *evaluation* into the marker: "TWO_LINE_OK_42" never appears in the
+    # keystrokes we send, only in what the shell computes and prints.
     zdotdir = make_zdotdir(REPO, modules=[], extra=EXTRA)
     with Shell(zdotdir) as sh:
         sh.read(2.0)
-        sh.send("echo TWO_LINE_OK\n")
+        sh.send("echo TWO_LINE_OK_$((40+2))\n")
         out = strip_ansi(sh.read(1.5))
-    assert "TWO_LINE_OK" in out, f"shell became unusable: {out!r}"
+    assert "TWO_LINE_OK_42" in out, f"shell became unusable: {out!r}"
 
 
 if __name__ == "__main__":

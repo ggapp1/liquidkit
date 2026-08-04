@@ -92,3 +92,17 @@ test_history_module_sources_cleanly_without_atuin() {
   PATH='/usr/bin:/bin' zsh -c "set -e; DOTFILES_DIR='$REPO'; source '$REPO/zsh/20-history.zsh'" \
     || { echo "  20-history.zsh errored without atuin"; return 1; }
 }
+
+test_prompt_module_sources_cleanly_without_liquidprompt() {
+  # With LIQUIDPROMPT_DIR pointing nowhere, the module must no-op rather than
+  # error. This is the module's only guard against `set -e` propagating a
+  # failed `[[ ... ]]` test out of the sourcing shell -- a bare `return` here
+  # (rather than `return 0`) would silently abort whatever sources it, the
+  # exact bug class already found and fixed in the path/history/oh-my-zsh
+  # modules. Run non-interactively (zsh -c) so the `$- == *i*` half of the
+  # guard is false too, exercising the no-op path the same way a script
+  # (rather than an interactive login shell) would hit it.
+  zsh -c "set -e; DOTFILES_DIR='$REPO'; LIQUIDPROMPT_DIR=/nonexistent; source '$REPO/zsh/60-prompt.zsh'; echo REACHED_AFTER_SOURCE" \
+    | grep -q '^REACHED_AFTER_SOURCE$' \
+    || { echo "  60-prompt.zsh errored (or aborted the script) when liquidprompt is absent"; return 1; }
+}
