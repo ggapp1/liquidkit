@@ -106,3 +106,14 @@ test_prompt_module_sources_cleanly_without_liquidprompt() {
     | grep -q '^REACHED_AFTER_SOURCE$' \
     || { echo "  60-prompt.zsh errored (or aborted the script) when liquidprompt is absent"; return 1; }
 }
+
+test_completion_module_sources_cleanly_without_fzf_tab() {
+  zsh -c "set -e; DOTFILES_DIR='$REPO'; source '$REPO/zsh/30-completion.zsh'" \
+    || { echo "  30-completion.zsh errored without fzf-tab"; return 1; }
+}
+
+test_completion_module_runs_compinit() {
+  local out
+  out="$(source_module 30-completion.zsh 'print -r -- ${+functions[compdef]}')"
+  [[ "$out" == "1" ]] || { echo "  compinit did not run (compdef undefined)"; return 1; }
+}
