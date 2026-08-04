@@ -24,3 +24,52 @@ if (( LPT_ENABLE_TWO_LINE )); then
   }
   precmd_functions+=(_lpt_second_line)
 fi
+
+# --- transient ---------------------------------------------------------------
+# Once a command runs, its prompt collapses to a bare mark so scrollback stays
+# readable. liquidprompt has no such feature.
+#
+# The mechanism is zle-line-init plus .recursive-edit, as used by starship.
+# DO NOT replace this with `add-zle-hook-widget line-finish` - that approach was
+# tried and does nothing at all, with no error to explain why.
+if (( LPT_ENABLE_TRANSIENT )); then
+
+  # Preserve any existing binding instead of clobbering another plugin's widget.
+  if (( ${+widgets[zle-line-init]} )); then
+    zle -A zle-line-init _lpt_saved_line_init
+  fi
+
+  _lpt_line_init() {
+    emulate -L zsh
+
+    # Only the outermost editing context; nested contexts must fall through
+    # or .recursive-edit will nest indefinitely.
+    [[ $CONTEXT == start ]] || return 0
+
+    (( ${+widgets[_lpt_saved_line_init]} )) && zle _lpt_saved_line_init
+
+    while true; do
+      zle .recursive-edit
+      local -i ret=$?
+      # $'\4' is Ctrl-D. Without ignore_eof it means "exit the shell".
+      [[ $ret == 0 && $KEYS == $'\4' ]] || break
+      [[ -o ignore_eof ]] || exit 0
+    done
+
+    # Repaint the finished line with the collapsed prompt, then hand off.
+    # PS1 is rebuilt by liquidprompt's precmd on the next cycle, so overwriting
+    # it here is safe and needs no restore.
+    PS1="$LPT_TRANSIENT_MARK"
+    RPROMPT=''
+    zle .reset-prompt
+
+    if (( ret )); then
+      zle .send-break      # interrupted: discard the line
+    else
+      zle .accept-line
+    fi
+    return ret
+  }
+
+  zle -N zle-line-init _lpt_line_init
+fi
