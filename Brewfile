@@ -1,7 +1,10 @@
 # Optional dependencies. Everything degrades gracefully when absent.
 #   brew bundle --file=Brewfile
-
-tap "homebrew/bundle"
+#
+# `brew bundle` has been built into Homebrew itself since 4.4.x, so no tap is
+# needed. Do NOT add `tap "homebrew/bundle"` back: that tap is deprecated
+# (Homebrew's DEPRECATED_OFFICIAL_TAPS) and tapping it calls `odie`, which
+# makes `brew bundle` exit 1 on the very first line and install nothing.
 
 # NOTE: liquidprompt is deliberately NOT listed here. Homebrew ships 2.3.0,
 # while install.sh clones 2.2.1 pinned to a tag because the transient plugin

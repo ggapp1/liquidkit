@@ -39,17 +39,23 @@ EOF
   chmod +x "$bin/git"
 }
 
-# The atuin stub records the $HOME it was invoked with (the whole point of
-# the fix under test: atuin must run against $TARGET_HOME, never the real
-# $HOME) plus its arguments, then drops the history.db marker
-# import_atuin_history() checks on a second run.
+# The atuin stub records the $HOME, $XDG_DATA_HOME and $XDG_CONFIG_HOME it
+# was invoked with (the whole point of the fix under test: atuin must run
+# against $TARGET_HOME on all three, never the real ambient values) plus its
+# arguments, then drops the history.db marker import_atuin_history() checks
+# on a second run.
 _stub_atuin() {
   local bin="$1"
   mkdir -p "$bin"
   cat > "$bin/atuin" <<'EOF'
 #!/usr/bin/env bash
 mkdir -p "$HOME/.local/share/atuin"
-{ printf 'HOME=%s\n' "$HOME"; printf 'ARGS=%s\n' "$*"; } >> "$HOME/.local/share/atuin/stub.log"
+{
+  printf 'HOME=%s\n' "$HOME"
+  printf 'XDG_DATA_HOME=%s\n' "${XDG_DATA_HOME:-<unset>}"
+  printf 'XDG_CONFIG_HOME=%s\n' "${XDG_CONFIG_HOME:-<unset>}"
+  printf 'ARGS=%s\n' "$*"
+} >> "$HOME/.local/share/atuin/stub.log"
 touch "$HOME/.local/share/atuin/history.db"
 exit 0
 EOF
@@ -85,6 +91,64 @@ test_backs_up_existing_file() {
   [[ -n "$backup" ]] || { echo "  no backup created"; return 1; }
   grep -q "ORIGINAL CONTENT" "$backup" || {
     echo "  backup lost the original content"; return 1; }
+  rm -rf "$tmp" "$stub"
+}
+
+test_liquidpromptrc_defaults_to_target_home_config_when_xdg_unset() {
+  # env -u forces XDG_CONFIG_HOME unset for this one install.sh invocation
+  # regardless of whatever the ambient shell running this suite happens to
+  # have -- making this test deterministic rather than accidentally
+  # depending on the test runner's own environment.
+  local tmp; tmp="$(mktemp -d)"
+  local stub; stub="$(mktemp -d)"; _stub_bin "$stub"
+  DOTFILES_INSTALL_HOME="$tmp" PATH="$stub:$PATH" env -u XDG_CONFIG_HOME "$REPO/install.sh" >/dev/null 2>&1
+  [[ -L "$tmp/.config/liquidpromptrc" ]] || {
+    echo "  liquidpromptrc was not symlinked at \$TARGET_HOME/.config/liquidpromptrc"; return 1; }
+  [[ "$(readlink "$tmp/.config/liquidpromptrc")" == "$REPO/prompt/liquidpromptrc" ]] || {
+    echo "  liquidpromptrc points at $(readlink "$tmp/.config/liquidpromptrc"), expected $REPO/prompt/liquidpromptrc"; return 1; }
+  rm -rf "$tmp" "$stub"
+}
+
+test_liquidpromptrc_honours_xdg_config_home_when_set() {
+  # liquidprompt itself reads its config from
+  # ${XDG_CONFIG_HOME:-$HOME/.config}/liquidpromptrc. A symlink hardcoded
+  # under $TARGET_HOME/.config lands somewhere liquidprompt never looks
+  # whenever XDG_CONFIG_HOME is set, and the prompt silently falls back to
+  # its defaults with no error. $xdg is a subdirectory of $tmp (never a real,
+  # ambient path) so this exercises the override without risking a write
+  # outside the sandbox.
+  local tmp; tmp="$(mktemp -d)"
+  local stub; stub="$(mktemp -d)"; _stub_bin "$stub"
+  local xdg="$tmp/custom-xdg-config"
+  DOTFILES_INSTALL_HOME="$tmp" PATH="$stub:$PATH" XDG_CONFIG_HOME="$xdg" \
+    "$REPO/install.sh" >/dev/null 2>&1
+  [[ -L "$xdg/liquidpromptrc" ]] || {
+    echo "  liquidpromptrc was not symlinked under \$XDG_CONFIG_HOME ($xdg)"; return 1; }
+  [[ "$(readlink "$xdg/liquidpromptrc")" == "$REPO/prompt/liquidpromptrc" ]] || {
+    echo "  liquidpromptrc points at $(readlink "$xdg/liquidpromptrc"), expected $REPO/prompt/liquidpromptrc"; return 1; }
+  [[ ! -e "$tmp/.config/liquidpromptrc" ]] || {
+    echo "  liquidpromptrc was ALSO created at the old hardcoded \$TARGET_HOME/.config location"; return 1; }
+  rm -rf "$tmp" "$stub"
+}
+
+test_liquidpromptrc_uninstall_restores_backup_under_xdg_config_home() {
+  # The backup-restore search in unlink_one must follow the same
+  # $XDG_CONFIG_HOME-aware target as link_one, not a $TARGET_HOME-rooted
+  # search that would miss a backup living outside $TARGET_HOME entirely.
+  local tmp; tmp="$(mktemp -d)"
+  local stub; stub="$(mktemp -d)"; _stub_bin "$stub"
+  local xdg="$tmp/custom-xdg-config"
+  mkdir -p "$xdg"
+  echo "ORIGINAL LIQUIDPROMPTRC" > "$xdg/liquidpromptrc"
+  DOTFILES_INSTALL_HOME="$tmp" PATH="$stub:$PATH" XDG_CONFIG_HOME="$xdg" \
+    "$REPO/install.sh" >/dev/null 2>&1
+  [[ -L "$xdg/liquidpromptrc" ]] || {
+    echo "  liquidpromptrc did not become a symlink under \$XDG_CONFIG_HOME"; return 1; }
+  DOTFILES_INSTALL_HOME="$tmp" XDG_CONFIG_HOME="$xdg" "$REPO/install.sh" --uninstall >/dev/null 2>&1
+  [[ ! -L "$xdg/liquidpromptrc" ]] || {
+    echo "  liquidpromptrc is still a symlink after --uninstall"; return 1; }
+  grep -q "ORIGINAL LIQUIDPROMPTRC" "$xdg/liquidpromptrc" || {
+    echo "  original liquidpromptrc content was not restored under \$XDG_CONFIG_HOME"; return 1; }
   rm -rf "$tmp" "$stub"
 }
 
@@ -126,6 +190,34 @@ test_uninstall_removes_link_when_no_backup() {
   [[ ! -e "$tmp/.zshrc" && ! -L "$tmp/.zshrc" ]] || {
     echo "  .zshrc should be gone entirely"; return 1; }
   rm -rf "$tmp" "$stub"
+}
+
+test_uninstall_twice_does_not_clobber_with_older_backup() {
+  # With two backups present, a second --uninstall must not restore the
+  # OLDER one over the file the first --uninstall already correctly restored.
+  # Constructed directly (a real symlink plus two hand-made backups with
+  # known, sorted timestamps and known content) rather than via two real
+  # install runs: two installs within the same second would collide on
+  # install.sh's own $STAMP and overwrite one backup file with the other
+  # before this scenario is even reached, and a `sleep` to avoid that would
+  # slow every run of this suite for a timing detail unrelated to what's
+  # under test here.
+  local tmp; tmp="$(mktemp -d)"
+  ln -s "$REPO/zsh/zshrc" "$tmp/.zshrc"
+  echo "OLDER BACKUP" > "$tmp/.zshrc.bak-20200101-000000"
+  echo "NEWER BACKUP" > "$tmp/.zshrc.bak-20200102-000000"
+
+  DOTFILES_INSTALL_HOME="$tmp" "$REPO/install.sh" --uninstall >/dev/null 2>&1
+  grep -q "NEWER BACKUP" "$tmp/.zshrc" || {
+    echo "  first --uninstall did not restore the newer backup"; return 1; }
+
+  DOTFILES_INSTALL_HOME="$tmp" "$REPO/install.sh" --uninstall >/dev/null 2>&1
+  grep -q "NEWER BACKUP" "$tmp/.zshrc" || {
+    echo "  second --uninstall clobbered the already-restored file (expected 'NEWER BACKUP', got: $(cat "$tmp/.zshrc"))"
+    return 1; }
+  [[ -f "$tmp/.zshrc.bak-20200101-000000" ]] || {
+    echo "  second --uninstall consumed the older backup instead of leaving it alone"; return 1; }
+  rm -rf "$tmp"
 }
 
 test_install_clones_liquidprompt_pinned_tag() {
@@ -188,6 +280,33 @@ test_import_atuin_history_scopes_home_to_target() {
   grep -q "^ARGS=import auto\$" "$log" || {
     echo "  atuin was not invoked as 'import auto': $(cat "$log")"; return 1; }
   rm -rf "$tmp" "$stub"
+}
+
+test_import_atuin_history_scopes_xdg_data_home_to_target() {
+  # HOME alone is not enough: atuin resolves its data directory from
+  # $XDG_DATA_HOME first and only falls back to $HOME/.local/share when that
+  # is unset. A developer who has XDG_DATA_HOME set in their real, ambient
+  # environment (simulated here as $ambient, a throwaway directory standing
+  # in for it) would, under a HOME-only override, still have the real `atuin
+  # import auto` invoked against that ambient XDG_DATA_HOME -- the exact
+  # regression this whole override exists to prevent, one environment
+  # variable further down atuin's own resolution order than HOME. Assert
+  # both that the subprocess actually received the overridden value pointing
+  # under $TARGET_HOME, and that nothing was written under the ambient path.
+  local tmp; tmp="$(mktemp -d)"
+  local stub; stub="$(mktemp -d)"; _stub_bin "$stub"; _stub_atuin "$stub"
+  local ambient; ambient="$(mktemp -d)"
+  DOTFILES_INSTALL_HOME="$tmp" PATH="$stub:$PATH" XDG_DATA_HOME="$ambient" \
+    "$REPO/install.sh" >/dev/null 2>&1
+  local log="$tmp/.local/share/atuin/stub.log"
+  [[ -f "$log" ]] || { echo "  atuin was never invoked"; return 1; }
+  grep -q "^XDG_DATA_HOME=$tmp/.local/share\$" "$log" || {
+    echo "  atuin ran with the wrong XDG_DATA_HOME, expected '$tmp/.local/share': $(cat "$log")"; return 1; }
+  grep -q "^XDG_CONFIG_HOME=$tmp/.config\$" "$log" || {
+    echo "  atuin ran with the wrong XDG_CONFIG_HOME, expected '$tmp/.config': $(cat "$log")"; return 1; }
+  [[ -z "$(find "$ambient" -mindepth 1 2>/dev/null)" ]] || {
+    echo "  atuin wrote into the ambient XDG_DATA_HOME ($ambient) instead of \$TARGET_HOME"; return 1; }
+  rm -rf "$tmp" "$stub" "$ambient"
 }
 
 test_import_atuin_history_is_idempotent() {

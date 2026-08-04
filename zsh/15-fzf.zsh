@@ -28,5 +28,14 @@ export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
 
 command -v bat >/dev/null 2>&1 \
   && export FZF_CTRL_T_OPTS="--preview 'bat --style=numbers --color=always --line-range :200 {}'"
-command -v eza >/dev/null 2>&1 \
-  && export FZF_ALT_C_OPTS="--preview 'eza --tree --level=2 --colour=always {}'"
+
+# Deliberately an if/fi, not `command -v eza ... && export ...`: this is the
+# last statement in the file, so its exit status becomes the exit status of
+# `source 15-fzf.zsh` itself (same bug class zsh/zshrc:18-27, 50-aliases.zsh:32-42
+# already warn about for their own trailing conditionals). The && form is
+# false whenever eza is merely absent, which would trip a caller's `set -e`
+# and silently abort everything sourced after this module. Do not "simplify"
+# this back to `&&` -- that reintroduces the abort.
+if command -v eza >/dev/null 2>&1; then
+  export FZF_ALT_C_OPTS="--preview 'eza --tree --level=2 --colour=always {}'"
+fi

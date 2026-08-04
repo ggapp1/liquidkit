@@ -30,10 +30,16 @@ field() {
   val="$(printf '%s' "$input" | jq -rc "$1 // empty" 2>/dev/null)"
   # Guard the single-line invariant against unexpected shapes: -c keeps a
   # non-scalar (object/array, from a schema change) on one line instead of
-  # jq's default pretty-print, and stripping newlines/CRs guards against a
-  # string value that itself embeds one (e.g. a crafted display_name).
-  val="${val//$'\n'/ }"
-  val="${val//$'\r'/ }"
+  # jq's default pretty-print, and stripping control characters guards
+  # against a string value that itself embeds one (e.g. a crafted
+  # display_name). This must strip the whole [:cntrl:] class, not just \n and
+  # \r: \x0b (vertical tab) is not \n or \r but most terminals still treat it
+  # as a line feed, so a val//$'\n'/ / val//$'\r'/ pair alone lets it straight
+  # through -- breaking the single-line invariant on screen while `wc -l`
+  # (which only counts \n) stays fooled into reporting one line. ANSI escapes
+  # (ESC, e.g. cursor-up/clear-line sequences) and \b are control characters
+  # too and are caught by the same substitution.
+  val="${val//[[:cntrl:]]/ }"
   printf '%s' "$val"
 }
 

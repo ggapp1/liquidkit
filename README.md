@@ -5,6 +5,15 @@ fuzzy everything, and a Claude Code statusline.
 
 ## Install
 
+Requires [oh-my-zsh](https://ohmyz.sh) as a prerequisite. This repo does not
+install it: `zsh/10-ohmyzsh.zsh` silently no-ops without it, which means no
+plugins at all, including all eight git aliases in the table below. Install
+it first with:
+
+```bash
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+```
+
 ```bash
 git clone https://github.com/<you>/dotfiles ~/Projects/tools/dotfiles
 cd ~/Projects/tools/dotfiles
@@ -83,12 +92,15 @@ aliases of its own, because synonyms make them harder to remember, not easier.
 | Alias | Command |
 |---|---|
 | `..` `...` `....` | `cd ..` and further up |
+| `ls` | `eza --group-directories-first --icons=auto` |
+| `ll` | `eza -lah --git --group-directories-first --icons=auto` |
+| `tree` | `eza --tree --level=2 --icons=auto` |
+| `cat` | `bat --paging=never --style=plain` |
 | `fr` | `flutter run` |
 | `fbi` | `flutter build ipa --release` |
 | `fc` | `flutter clean` |
 | `fpg` | `flutter pub get` |
 | `nrd` | `npm run dev` |
-| `ll` | `eza -lah --git` |
 
 `p [query]` jumps to any project under `$PROJECTS_DIR` (default `~/Projects`),
 searching two levels deep.

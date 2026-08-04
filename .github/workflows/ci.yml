@@ -92,6 +92,16 @@ jobs:
         # built around it are ~85% of the suite's runtime, and are called out
         # below as the flake risk) -- CI must actually run it, not skip it.
         # Running the real installer first is what makes that happen.
+        #
+        # Step-level timeout: install_liquidprompt() clones over the network,
+        # and deliberately does not let a clone *failure* abort the script
+        # (see its own comment) -- but a network *stall* is not a failure, it
+        # never returns, and without a guard here it would sit consuming the
+        # whole job-level 15-minute cap before anything else in this job ever
+        # gets a chance to catch it. 5 minutes is generous for what is
+        # normally a few-seconds symlink-and-clone operation, mirroring the
+        # same reasoning as the "Run tests" step's own timeout below.
+        timeout-minutes: 5
         run: ./install.sh
 
       - name: Run tests

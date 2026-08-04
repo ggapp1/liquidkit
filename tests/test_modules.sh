@@ -21,6 +21,34 @@ test_path_module_exports_brew_prefix() {
     echo "  BREW_PREFIX was '$got', expected an existing directory"; return 1; }
 }
 
+test_path_module_adds_brew_prefix_bin() {
+  # Spec 5.1: $BREW_PREFIX/bin must be on PATH after this module runs.
+  #
+  # A real `brew` cannot be used to observe this: its own executable lives at
+  # $(brew --prefix)/bin/brew, so that directory is necessarily ALREADY on
+  # PATH before the module ever runs, just for `command -v brew` to have
+  # found it in the first place -- and, on this machine, /etc/zprofile's own
+  # `brew shellenv` puts it there too. A first version of this test asserted
+  # against the real `brew` and passed identically whether or not the
+  # module's own addition was even present, for exactly that reason -- it is
+  # the same "harmless on macOS" masking this whole bug had, reproduced
+  # directly. A fake `brew` stub reporting a throwaway prefix that is never
+  # on the real ambient PATH isolates what THIS module itself adds.
+  local tmp; tmp="$(mktemp -d)"
+  local stub="$tmp/stubbin"; mkdir -p "$stub"
+  local fake_prefix="$tmp/fake-brew-prefix"; mkdir -p "$fake_prefix/bin"
+  cat > "$stub/brew" <<EOF
+#!/bin/sh
+echo "$fake_prefix"
+EOF
+  chmod +x "$stub/brew"
+  local out
+  out="$(PATH="$stub:/usr/bin:/bin" zsh -f -c "DOTFILES_DIR='$REPO'; source '$REPO/zsh/00-path.zsh'; print -r -- \$path")"
+  rm -rf "$tmp"
+  [[ "$out" == *"$fake_prefix/bin"* ]] || {
+    echo "  \$BREW_PREFIX/bin ($fake_prefix/bin) is not on \$path after sourcing 00-path.zsh: $out"; return 1; }
+}
+
 test_path_module_adds_no_missing_dirs() {
   # Only the entries THIS module adds are its responsibility. The inherited
   # PATH routinely holds stale directories that are none of our business.
@@ -61,6 +89,61 @@ test_fzf_module_precedes_history_module() {
   [[ "$fzf_num" -lt "$hist_num" ]] || {
     echo "  fzf module ($fzf_num) must load before history ($hist_num): both bind Ctrl-R"
     return 1; }
+}
+
+test_completion_module_precedes_prompt_module() {
+  # README's load-order constraint #2: "30-completion.zsh after compinit,
+  # before autosuggestions". zsh-autosuggestions is sourced from
+  # 60-prompt.zsh (see its own header comment: "zsh-autosuggestions must
+  # precede zsh-syntax-highlighting; highlighting is last"), so the
+  # structural form of this constraint is that the completion module's
+  # number precedes the prompt module's. Asserted the same way as constraint
+  # #1 above, so a future rename or renumber trips this test rather than
+  # silently letting fzf-tab wrap the completion widget after autosuggestions
+  # has already wrapped it.
+  local completion_num prompt_num
+  completion_num="$(basename "$REPO"/zsh/*-completion.zsh | cut -d- -f1)"
+  prompt_num="$(basename "$REPO"/zsh/*-prompt.zsh | cut -d- -f1)"
+  [[ "$completion_num" -lt "$prompt_num" ]] || {
+    echo "  completion module ($completion_num) must load before prompt ($prompt_num): fzf-tab must wrap the completion widget before autosuggestions does"
+    return 1; }
+}
+
+test_prompt_module_is_highest_numbered() {
+  # README's load-order constraint #3: "60-prompt.zsh last" -- the transient
+  # prompt binds zle-line-init after syntax highlighting is in place, so
+  # nothing may load after it. Asserted structurally against every module
+  # that actually loads (zsh/zshrc's own [0-9][0-9]-*.zsh glob), so adding a
+  # new module with a higher number trips this test instead of silently
+  # breaking the transient prompt.
+  local prompt_num highest
+  prompt_num="$(basename "$REPO"/zsh/*-prompt.zsh | cut -d- -f1)"
+  highest="$(basename -a "$REPO"/zsh/[0-9][0-9]-*.zsh | cut -d- -f1 | sort -n | tail -1)"
+  [[ "$prompt_num" == "$highest" ]] || {
+    echo "  prompt module ($prompt_num) is not the highest-numbered module (that's $highest): 60-prompt.zsh must load last"
+    return 1; }
+}
+
+test_fzf_module_sources_cleanly_without_tools() {
+  # 15-fzf.zsh was the only module with no "sources cleanly" test, which is
+  # exactly why its trailing `command -v eza >/dev/null 2>&1 && export ...`
+  # guard (last statement in the file, so its exit status becomes the exit
+  # status of `source 15-fzf.zsh` itself) survived as long as it did.
+  #
+  # Reproducing the bug requires fzf to be seen as present: the module's very
+  # first line is `command -v fzf >/dev/null 2>&1 || return 0`, so with fzf
+  # genuinely absent the module no-ops before ever reaching the buggy line
+  # below, and a PATH that hides fzf too would never exercise it. A shell
+  # function stands in for the real fzf binary -- `command -v` in zsh reports
+  # functions exactly like it reports external commands (verified directly:
+  # `zsh -f -c 'fzf() { :; }; command -v fzf'` succeeds). eza, bat and fd are
+  # genuinely absent: PATH is narrowed to bare system directories, and `zsh -f`
+  # skips rc files that might otherwise reintroduce them (same rationale as
+  # test_aliases_module_sources_cleanly_with_nothing_installed's PATH-narrowing).
+  local out
+  out="$(PATH='/usr/bin:/bin' zsh -f -c "set -e; DOTFILES_DIR='$REPO'; fzf() { :; }; source '$REPO/zsh/15-fzf.zsh'; echo REACHED")"
+  [[ "$out" == "REACHED" ]] || {
+    echo "  15-fzf.zsh aborted the sourcing shell when fzf is present but eza/bat/fd are absent (got '$out')"; return 1; }
 }
 
 test_history_module_sets_options() {

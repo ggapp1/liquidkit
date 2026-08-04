@@ -17,6 +17,17 @@ _dotfiles_paths=(
   "$HOME/.npm-packages/bin"
 )
 
+# $BREW_PREFIX/bin last: the most specific of these entries, so it wins over
+# the others when several exist, matching how Homebrew's own `shellenv`
+# prepends it ahead of everything else. Guarded on BREW_PREFIX being set
+# (only true when `brew` was found above) as well as the directory existing,
+# same as every other entry here. Harmless on macOS in practice --
+# /etc/zprofile's `brew shellenv` already puts this on PATH before zsh ever
+# reaches this file -- but Spec 5.1 states it as a requirement of this
+# module specifically, and this module should not silently depend on that
+# separate mechanism to satisfy it.
+[[ -n "${BREW_PREFIX:-}" ]] && _dotfiles_paths+=("$BREW_PREFIX/bin")
+
 for _p in $_dotfiles_paths; do
   [[ -d "$_p" ]] && path=("$_p" $path)
 done
