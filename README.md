@@ -162,7 +162,27 @@ Add to `~/.claude/settings.json`:
 { "statusLine": { "type": "command", "command": "~/.claude/statusline.sh" } }
 ```
 
-Shows model, directory, git branch, session cost and lines changed.
+```
+Opus 5 | liquidkit main | $1.23 | +42/-7
+```
+
+Model, directory, git branch, session cost and lines changed — colourised, and
+honouring [`NO_COLOR`](https://no-color.org).
+
+Hide the cost segment by setting `LIQUIDKIT_STATUSLINE_COST=0` in the command:
+
+```json
+{ "statusLine": { "type": "command",
+                  "command": "LIQUIDKIT_STATUSLINE_COST=0 ~/.claude/statusline.sh" } }
+```
+
+Two display details worth knowing:
+
+- In a **git worktree**, directories are conventionally named after their branch,
+  so `dir + branch` reads as a stutter (`api feat/api`). When the branch's last
+  segment matches the directory, only the branch is shown — it carries strictly
+  more information.
+- In `$HOME` the directory shows as `~`, not your username.
 
 > Claude Code's status payload exposes **no context-remaining figure** — there is
 > no way to render "73% left". A `⚠ 200k` marker is the only signal available,

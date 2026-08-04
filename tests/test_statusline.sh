@@ -86,10 +86,17 @@ test_strips_all_control_characters_not_just_newline_and_cr() {
   # ANSI cursor/clear-line escapes and a bare backspace are included too,
   # since they are control characters as well and must be caught by the same
   # fix, not special-cased.
+  #
+  # Run under NO_COLOR: the script legitimately emits its own ANSI colour
+  # escapes, which are control characters too. Without this, the assertion
+  # below cannot tell "the script coloured its output" from "a crafted field
+  # value smuggled an escape through", and fails on the former. NO_COLOR
+  # strips ours, so anything left must have come from the payload -- which is
+  # exactly what this test is about.
   local json
   json='{"model": {"display_name": "Opus\u000b5\u001b[5A\u001b[2K\bHACK"}}'
-  local out; out="$(echo "$json" | "$SL")"
-  local lines; lines="$(echo "$json" | "$SL" | wc -l | tr -d ' ')"
+  local out; out="$(echo "$json" | NO_COLOR=1 "$SL")"
+  local lines; lines="$(echo "$json" | NO_COLOR=1 "$SL" | wc -l | tr -d ' ')"
   [[ "$lines" == "1" ]] || {
     echo "  emitted $lines lines for input with a vertical tab and ANSI escapes, expected 1: $out"; return 1; }
   # Assert no raw control bytes survive in the output, not just that wc -l
@@ -98,4 +105,53 @@ test_strips_all_control_characters_not_just_newline_and_cr() {
     echo "  output still contains a raw control character: $(printf '%s' "$out" | od -c | head -3)"
     return 1
   fi
+}
+
+test_worktree_branch_does_not_stutter_against_dir_name() {
+  # Git worktrees are conventionally named after their branch, so dir+branch
+  # reads as a repeat: "differentiated-backlog feat/differentiated-backlog".
+  # Different strings, same information. Show only the branch, which carries
+  # everything the directory did plus the prefix the directory lost.
+  local tmp; tmp="$(mktemp -d)"
+  local wt="$tmp/differentiated-backlog"
+  mkdir -p "$wt"
+  ( cd "$wt" && git init -q && git commit -q --allow-empty -m x \
+      && git checkout -q -b feat/differentiated-backlog ) >/dev/null 2>&1
+  local out
+  out="$(printf '{"workspace":{"current_dir":"%s"}}' "$wt" | NO_COLOR=1 "$SL")"
+  rm -rf "$tmp"
+  [[ "$out" != *"differentiated-backlog feat/"* ]] || {
+    echo "  dir and branch stutter: $out"; return 1; }
+  [[ "$out" == *"feat/differentiated-backlog"* ]] || {
+    echo "  branch missing entirely: $out"; return 1; }
+}
+
+test_home_directory_shows_tilde_not_username() {
+  # basename "$HOME" is the username, which says nothing about location.
+  local out
+  out="$(printf '{"workspace":{"current_dir":"%s"}}' "$HOME" | NO_COLOR=1 "$SL")"
+  [[ "$out" == *"~"* ]] || { echo "  expected ~ for \$HOME, got: $out"; return 1; }
+  [[ "$out" != *"$(basename "$HOME")"* ]] || {
+    echo "  leaked the username instead of ~: $out"; return 1; }
+}
+
+test_cost_segment_can_be_switched_off() {
+  local json='{"cost":{"total_cost_usd":1.2345}}'
+  local on off
+  on="$(echo "$json" | NO_COLOR=1 "$SL")"
+  off="$(echo "$json" | NO_COLOR=1 LIQUIDKIT_STATUSLINE_COST=0 "$SL")"
+  [[ "$on" == *"1.23"* ]] || { echo "  cost missing when enabled: $on"; return 1; }
+  [[ "$off" != *"1.23"* ]] || { echo "  cost still shown when disabled: $off"; return 1; }
+}
+
+test_colour_is_emitted_and_no_color_suppresses_it() {
+  local json='{"model":{"display_name":"Opus 5"}}'
+  local coloured plain
+  coloured="$(echo "$json" | "$SL")"
+  plain="$(echo "$json" | NO_COLOR=1 "$SL")"
+  [[ "$coloured" == *$'\e['* ]] || { echo "  no colour emitted: $coloured"; return 1; }
+  [[ "$plain" != *$'\e['* ]] || { echo "  NO_COLOR not honoured: $plain"; return 1; }
+  # Colour must not cost the single-line guarantee.
+  [[ "$(echo "$json" | "$SL" | wc -l | tr -d ' ')" == "1" ]] || {
+    echo "  coloured output was not one line"; return 1; }
 }
