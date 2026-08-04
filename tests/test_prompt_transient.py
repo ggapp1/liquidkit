@@ -37,10 +37,10 @@ def test_prompt_collapses_after_command():
 
 def test_prompt_collapses_after_command_vi_mode():
     # Spec risk #2: .recursive-edit could in principle conflict with
-    # zle-vi-cmd-mode. Empirically checked (see task-8-report.md) and found to
-    # work, including real normal-mode motions (Esc/0/I) and across multiple
-    # commands, so this test locks that finding in rather than leaving it a
-    # guess.
+    # zle-vi-cmd-mode. Empirically checked and found to work, including real
+    # normal-mode motions (Esc/0/I) and across multiple commands, so this test
+    # locks that finding in rather than leaving it a guess. See the "vi-mode"
+    # section of ../prompt/README.md for what was verified.
     zdotdir = make_zdotdir(REPO, modules=[], extra=EXTRA + "\nbindkey -v\n")
     with Shell(zdotdir) as sh:
         sh.read(2.0)
@@ -88,9 +88,9 @@ def test_ctrl_c_does_not_hang_shell():
     # the *next* command was sent. That made the assertion below structurally
     # unable to catch the regression it exists to catch -- confirmed by
     # re-applying the "unconditional accept-line" break to the real plugin
-    # and observing the discarding version pass all three times regardless
-    # (see task-8-report.md). Every window from the moment Ctrl-C is sent is
-    # now accumulated into `out`.
+    # and observing the discarding version pass all three times regardless.
+    # Every window from the moment Ctrl-C is sent is now accumulated into
+    # `out`.
     zdotdir = make_zdotdir(REPO, modules=[], extra=EXTRA)
     with Shell(zdotdir) as sh:
         sh.read(2.0)
