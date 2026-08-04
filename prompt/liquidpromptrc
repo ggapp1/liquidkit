@@ -32,9 +32,43 @@ LP_ENABLE_TEMP=0
 LP_ENABLE_VIRTUALENV=1
 # conda activates 'base' in every shell, so showing it is pure noise.
 # Hide that one name; any other environment still displays.
-if [[ "${CONDA_DEFAULT_ENV:-}" == "base" ]]; then
-  LP_ENABLE_VIRTUALENV=0
+#
+# This MUST be re-evaluated on every prompt, not once while this file is being
+# sourced. conda's init block lives in ~/.zshrc.local, which zsh/zshrc sources
+# AFTER zsh/60-prompt.zsh -- so at the moment this file runs CONDA_DEFAULT_ENV
+# does not exist yet and a one-shot check always sees "not base" and shows it.
+# liquidprompt re-reads LP_ENABLE_VIRTUALENV on every prompt
+# (liquidprompt:1992), so a precmd hook is enough. Registering it from here
+# also guarantees it runs before liquidprompt's own __lp_set_prompt, which is
+# appended later during liquidprompt's init.
+_lp_hide_conda_base() {
+  if [[ "${CONDA_DEFAULT_ENV:-}" == "base" ]]; then
+    LP_ENABLE_VIRTUALENV=0
+  else
+    LP_ENABLE_VIRTUALENV=1
+  fi
+}
+if [[ -n "${precmd_functions+set}" ]] || typeset -a precmd_functions; then
+  precmd_functions+=(_lp_hide_conda_base)
 fi
+
+# --- VCS text colours --------------------------------------------------------
+# liquidprompt colours the branch text itself, independently of the powerline
+# segment around it: LP_COLOR_UP defaults to $GREEN (liquidprompt:562) and is
+# applied at liquidprompt:2737. The powerline theme does not override it. The
+# result is green text on the bright-green clean-VCS background -- the segment
+# looks empty. Same class of clash for the other states.
+#
+# Pin them all to the segment's own foreground (232, near-black), which is
+# legible on every background this theme uses for VCS: 84 green (clean),
+# 208 orange (dirty), 141 purple (stash).
+#
+# Note the empty string is NOT an option: liquidprompt reads these with
+# ${VAR:-default}, so an empty value falls straight back to the default colour.
+LP_COLOR_UP=$'\e[38;5;232m'
+LP_COLOR_COMMITS=$'\e[38;5;232m'
+LP_COLOR_CHANGES=$'\e[38;5;232m'
+LP_COLOR_DIFF=$'\e[38;5;232m'
 
 # --- powerline glyphs --------------------------------------------------------
 # These MUST contain real Private Use Area characters. They were once stripped

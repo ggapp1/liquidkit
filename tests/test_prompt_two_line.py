@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The prompt must occupy two lines: powerline bar, then a bare input mark."""
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "lib"))
@@ -14,8 +15,6 @@ if LIQUIDPROMPT is None:
     print("  SKIP liquidprompt is not installed")
     sys.exit(0)
 
-# Source the repo's own liquidpromptrc rather than ~/.config, so this test does
-# not depend on install.sh having already run.
 # Reproduce a real install rather than sourcing the rc by hand.
 #
 # liquidprompt sources its own config from ${XDG_CONFIG_HOME:-$HOME/.config},
@@ -46,6 +45,25 @@ def _capture_ps1(extra=EXTRA):
         sh.read(1.0)
         with open(os.path.join(zdotdir, "ps1.raw"), encoding="utf-8") as fh:
             return fh.read()
+
+
+def test_no_basic_ansi_colours_clash_with_powerline_segments():
+    # liquidprompt colours some text itself, independently of the powerline
+    # segment drawn around it -- LP_COLOR_UP defaults to $GREEN and is applied
+    # to the branch name, which the powerline theme then paints on its bright
+    # green clean-VCS background. Green on green: the segment looks empty.
+    #
+    # The powerline theme addresses every colour as 256-colour (38;5;N / 48;5;N),
+    # so ANY basic-ANSI foreground (\e[30m..\e[37m) in PS1 means something
+    # bypassed the palette and is picking its own colour with no knowledge of
+    # the background behind it. That is the bug class, not just this instance.
+    ps1 = _capture_ps1(EXTRA + "\ncd " + REPO + "\n")
+    basic = re.findall(r"\x1b\[(3[0-7])m", ps1)
+    assert not basic, (
+        f"basic-ANSI foreground codes {sorted(set(basic))} in PS1 - these ignore "
+        "the powerline segment background and can render text invisible; use "
+        f"256-colour (38;5;N) instead: {strip_ansi(ps1)!r}"
+    )
 
 
 def test_powerline_theme_is_actually_active():
