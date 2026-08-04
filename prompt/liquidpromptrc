@@ -48,22 +48,31 @@ POWERLINE_PYTHON_ENV_MARKER=" "    # U+E73C + space
 # --- Dracula-inspired palette ------------------------------------------------
 # Format: (FG_256 BG_256 bold underline FG_8_fallback BG_8_fallback)
 # Must be set BEFORE lp_theme is invoked.
+#
+# NOTE: every dark-foreground segment (fg 232) deliberately has bold OFF.
+# Terminals with "brighten bold text" enabled - it is ON by default in iTerm2
+# ("Use Bright Bold") - render bold text with a lightened foreground. Applied
+# to a near-black fg that turns it grey, and grey on a bright background such
+# as #5fff87 (the clean-VCS green) is close to unreadable. The measured
+# contrast still looks excellent on paper (15:1) because the palette says
+# #080808; the terminal simply never draws it that way. Light-on-dark segments
+# are unaffected, since brightening white leaves it white.
 POWERLINE_NEUTRAL_COLOR=(252 236 0 0 7 0)
-POWERLINE_TIME_COLOR=(232 141 1 0 0 5)
-POWERLINE_JOBS_COLOR=(232 220 1 0 0 3)
-POWERLINE_USER_COLOR=(232 117 1 0 0 6)
-POWERLINE_HOST_COLOR=(232 212 1 0 0 5)
+POWERLINE_TIME_COLOR=(232 141 0 0 0 5)
+POWERLINE_JOBS_COLOR=(232 220 0 0 0 3)
+POWERLINE_USER_COLOR=(232 117 0 0 0 6)
+POWERLINE_HOST_COLOR=(232 212 0 0 0 5)
 POWERLINE_PATH_COLOR=(255 25 0 0 7 4)
 POWERLINE_PATH_SEPARATOR_COLOR=(123 25 0 0 7 6)
 POWERLINE_PATH_LAST_COLOR=(255 25 0 0 7 4)
 POWERLINE_PATH_SHORTENED_COLOR=(255 25 0 0 7 4)
 POWERLINE_PATH_VCS_COLOR=(255 25 0 0 7 4)
-POWERLINE_PYTHON_ENV_COLOR=(232 84 1 0 0 2)
-POWERLINE_NODE_ENV_COLOR=(232 215 1 0 0 3)
-POWERLINE_VCS_CLEAN_COLOR=(232 84 1 0 0 2)
-POWERLINE_VCS_DIRTY_COLOR=(232 208 1 0 0 3)
-POWERLINE_VCS_STASH_COLOR=(232 141 1 0 0 5)
-POWERLINE_RUNTIME_COLOR=(232 220 1 0 0 3)
+POWERLINE_PYTHON_ENV_COLOR=(232 84 0 0 0 2)
+POWERLINE_NODE_ENV_COLOR=(232 215 0 0 0 3)
+POWERLINE_VCS_CLEAN_COLOR=(232 84 0 0 0 2)
+POWERLINE_VCS_DIRTY_COLOR=(232 208 0 0 0 3)
+POWERLINE_VCS_STASH_COLOR=(232 141 0 0 0 5)
+POWERLINE_RUNTIME_COLOR=(232 220 0 0 0 3)
 POWERLINE_ERROR_COLOR=(231 197 1 0 7 1)
 
 # --- theme activation --------------------------------------------------------
