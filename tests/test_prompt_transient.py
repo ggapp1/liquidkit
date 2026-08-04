@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Executed commands must leave a collapsed prompt behind, not the full bar."""
 import os
+import re
 import sys
 import time
 
@@ -87,7 +88,16 @@ def test_ctrl_c_does_not_hang_shell():
         sh.send("echo AFTER_INTERRUPT\n")
         out = strip_ansi(sh.read(2.0))
     assert "AFTER_INTERRUPT" in out, f"shell unusable after Ctrl-C: {out!r}"
-    assert "NEVER_RUN\r" not in out, "interrupted command was executed anyway"
+    # strip_ansi deletes every bare "\r" (see its regex), so a prior version
+    # of this check -- "NEVER_RUN\r" not in out -- could never fail: there is
+    # no "\r" left in `out` at all, stripped or not. strip_ansi does collapse
+    # "\r\n" down to "\n" though, so real command *output* from `echo` still
+    # shows up as a line by itself, bounded by newlines on both sides; the
+    # merely-typed "echo NEVER_RUN" text never does, because "echo " sits on
+    # the same line immediately before it. That is what distinguishes "it was
+    # typed" from "it was executed".
+    assert not re.search(r"^NEVER_RUN$", out, re.M), \
+        f"interrupted command was executed anyway: {out!r}"
 
 
 def test_ctrl_d_exits_cleanly():
@@ -123,6 +133,68 @@ def test_transient_can_be_disabled():
         out = sh.read(2.0)
     assert "XCOLLAPSEDX" not in out, "transient disabled but prompt still collapsed"
     assert "BETA" in out, "command output missing"
+
+
+def test_rprompt_survives_a_command():
+    # liquidprompt 2.2.1 assigns only PS1, never RPROMPT/RPS1 (grep confirms
+    # neither name appears in liquidprompt or its themes) -- so nothing
+    # rebuilds RPROMPT on the next precmd. If the plugin blanks it for the
+    # collapsed view without restoring it, a user-set RPROMPT disappears
+    # permanently after the very first command. Read via file redirection,
+    # not pty output, so this depends on real shell state, not typed text.
+    extra = EXTRA + "\nRPROMPT='XRIGHTX'\n"
+    zdotdir = make_zdotdir(REPO, modules=[], extra=extra)
+    with Shell(zdotdir) as sh:
+        sh.read(2.0)
+        sh.send("print -rn -- $RPROMPT > $ZDOTDIR/rprompt.before\n")
+        sh.read(1.0)
+        sh.send("echo COMMAND_ONE\n")
+        sh.read(1.5)
+        sh.send("print -rn -- $RPROMPT > $ZDOTDIR/rprompt.after\n")
+        sh.read(1.0)
+        with open(os.path.join(zdotdir, "rprompt.before"), encoding="utf-8") as fh:
+            before = fh.read()
+        with open(os.path.join(zdotdir, "rprompt.after"), encoding="utf-8") as fh:
+            after = fh.read()
+    assert before == "XRIGHTX", f"RPROMPT not set before any command ran: {before!r}"
+    assert after == "XRIGHTX", f"RPROMPT lost after a command: {after!r}"
+
+
+def test_sourcing_twice_stays_functional():
+    # A plain `source ~/.zshrc` reload -- the ordinary way people reload their
+    # shell -- sources this plugin a second time. Re-aliasing the transient
+    # widget to itself would recurse ("maximum nested function level
+    # reached"), leaving transient dead (or the shell unusable) from then on.
+    extra = EXTRA + (
+        f"\nsource {os.path.join(REPO, 'prompt', 'liquidprompt-transient.plugin.zsh')!r}\n"
+    )
+    zdotdir = make_zdotdir(REPO, modules=[], extra=extra)
+    with Shell(zdotdir) as sh:
+        sh.read(2.0)
+        sh.send("echo DOUBLE_SOURCED\n")
+        out = strip_ansi(sh.read(2.0))
+    assert "nested function level" not in out.lower(), \
+        f"double-sourcing caused zle recursion: {out!r}"
+    assert "XCOLLAPSEDX" in out, f"transient broke after double-sourcing: {out!r}"
+    assert "DOUBLE_SOURCED" in out, "command output missing after double-sourcing"
+
+
+def test_sourcing_twice_does_not_duplicate_mark():
+    # Companion to the above, isolating the two-line hook specifically: with
+    # transient OFF, PS1 is never overwritten by the collapse logic, so it can
+    # be inspected directly (as test_prompt_two_line.py does) to confirm a
+    # second sourcing did not append a second copy of the second-line hook.
+    extra = EXTRA.replace("LPT_TRANSIENT_MARK='XCOLLAPSEDX '",
+                          "LPT_TRANSIENT_MARK='XCOLLAPSEDX '\nLPT_ENABLE_TRANSIENT=0")
+    extra += f"\nsource {os.path.join(REPO, 'prompt', 'liquidprompt-transient.plugin.zsh')!r}\n"
+    zdotdir = make_zdotdir(REPO, modules=[], extra=extra)
+    with Shell(zdotdir) as sh:
+        sh.read(2.0)
+        sh.send("print -rn -- $PS1 > $ZDOTDIR/ps1.raw\n")
+        sh.read(1.0)
+        with open(os.path.join(zdotdir, "ps1.raw"), encoding="utf-8") as fh:
+            ps1 = fh.read()
+    assert ps1.count("❯") == 1, f"duplicate second-line mark after re-sourcing: {ps1!r}"
 
 
 def test_coexists_with_syntax_highlighting():
