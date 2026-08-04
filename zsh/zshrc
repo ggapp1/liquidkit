@@ -1,0 +1,23 @@
+# Entry point. Symlinked to ~/.zshrc by install.sh.
+#
+# Resolve this file's own directory, following symlinks, so the repo can live
+# anywhere. ${(%):-%N} is the path of the file currently being sourced;
+# :A makes it absolute and resolves symlinks; :h:h climbs zsh/zshrc -> zsh -> root.
+: ${DOTFILES_DIR:="${${(%):-%N}:A:h:h}"}
+export DOTFILES_DIR
+
+# Numeric prefixes encode load order. See "Load order" in README before reordering.
+# (N) is NULL_GLOB: an empty match yields nothing instead of an error.
+for _dotfiles_module in "$DOTFILES_DIR"/zsh/[0-9][0-9]-*.zsh(N); do
+  source "$_dotfiles_module"
+done
+unset _dotfiles_module
+
+# Machine-local overrides. Never in the repo: may hold private paths or tokens.
+[[ -r "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
+
+# Guarantee this file's own exit status is always 0 when sourced. Without this,
+# the exit status of the (often-false) conditional above would leak out as the
+# exit status of `source zshrc` itself — harmless in an interactive shell, but
+# it makes `zsh -c "source zshrc"` look like a failure in test/CI contexts.
+true
