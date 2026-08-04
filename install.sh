@@ -97,8 +97,80 @@ doctor() {
       log "  MISSING  $tool - $why"
     fi
   done
+  # liquidprompt is not a `command`, it's a git clone, so it cannot go through
+  # the OPTIONAL_TOOLS loop above. install_liquidprompt runs before this
+  # function in the normal install path, so this only fires when that clone
+  # never happened (offline first install) or genuinely failed -- exactly the
+  # case that must never be silent: zsh/60-prompt.zsh no-ops without it, and
+  # zsh falls all the way back to its plain, uncustomised default prompt with
+  # no two-line layout and no transient collapse. No message, no theme, no hint.
+  if [[ -d "$LIQUIDPROMPT_DIR/.git" ]]; then
+    log "  found    liquidprompt"
+  else
+    log "  MISSING  liquidprompt - no prompt customisation at all: no two-line layout, no transient collapse; zsh falls back to its plain default prompt"
+  fi
   log ""
   log "Install everything with: brew bundle --file=$DOTFILES_DIR/Brewfile"
+}
+
+LIQUIDPROMPT_TAG="v2.2.1"
+LIQUIDPROMPT_DIR="$TARGET_HOME/.local/share/liquidprompt"
+
+install_liquidprompt() {
+  # Pinned to a tag: the transient plugin hooks powerline_full internals, so an
+  # unpinned upstream change would break the prompt silently.
+  if [[ -d "$LIQUIDPROMPT_DIR/.git" ]]; then
+    log "  ok: liquidprompt already present"
+    return 0
+  fi
+  log "  clone: liquidprompt $LIQUIDPROMPT_TAG"
+  # Deliberately does not let a clone failure (e.g. no network on a first,
+  # offline install) abort the whole installer via set -e: every other
+  # dependency in this script degrades gracefully when absent, and this one
+  # should too. `doctor`, called right after this in the install branch,
+  # reports the miss plainly so it is never a silent gap.
+  #
+  # -c advice.detachedHead=false: v2.2.1 is an annotated tag, so a shallow
+  # --branch checkout lands on it in detached HEAD state. Without this, git
+  # prints its full "You are in 'detached HEAD' state..." essay on every
+  # first install, which reads like something went wrong when nothing did.
+  if ! act git -c advice.detachedHead=false clone --quiet --depth 1 \
+      --branch "$LIQUIDPROMPT_TAG" \
+      https://github.com/liquidprompt/liquidprompt.git "$LIQUIDPROMPT_DIR"; then
+    log "  warn: liquidprompt clone failed (offline?) - retry later with:"
+    log "        git clone --branch $LIQUIDPROMPT_TAG https://github.com/liquidprompt/liquidprompt.git $LIQUIDPROMPT_DIR"
+  fi
+  return 0
+}
+
+import_atuin_history() {
+  # One-time migration of existing shell history into atuin's database.
+  # Belongs here rather than in 20-history.zsh: that file runs on every shell
+  # start, and importing repeatedly would be slow and pointless.
+  command -v atuin >/dev/null 2>&1 || return 0
+
+  # atuin stores its database under this directory; its presence means a prior
+  # import already happened.
+  local db="${XDG_DATA_HOME:-$TARGET_HOME/.local/share}/atuin/history.db"
+  if [[ -e "$db" ]]; then
+    log "  ok: atuin history already imported"
+    return 0
+  fi
+
+  log "  import: existing shell history into atuin"
+  # HOME is overridden for this invocation only: atuin resolves its own
+  # config/data directories, and the shell history files it scans, from $HOME
+  # -- not from $TARGET_HOME, which is purely this script's own bookkeeping
+  # variable and nothing atuin has ever heard of. Without this override,
+  # `DOTFILES_INSTALL_HOME=<tmp> ./install.sh` (exactly what every test in
+  # tests/test_install.sh does) would still import into the REAL $HOME's
+  # atuin database, silently mutating a developer's actual shell history on
+  # every test run -- precisely what that file's own header comment promises
+  # never happens. For a real install, TARGET_HOME already equals $HOME, so
+  # this override changes nothing.
+  act env HOME="$TARGET_HOME" atuin import auto \
+    || log "  warn: atuin import failed; rerun manually with: atuin import auto"
+  return 0
 }
 
 while [[ $# -gt 0 ]]; do
@@ -126,6 +198,8 @@ fi
 
 log "Installing:"
 for entry in "${LINKS[@]}"; do link_one "${entry%%:*}" "${entry#*:}"; done
+install_liquidprompt
+import_atuin_history
 (( DRY_RUN )) || doctor
 log ""
 log "Done. Restart your shell or run: exec zsh"

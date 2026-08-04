@@ -1,0 +1,110 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    # Backstop for the whole job. Measured locally: the full suite is ~70s and
+    # setup (brew installs + a real install.sh run) adds at most a few minutes
+    # on a cold cache. 15 minutes leaves generous headroom for a slow runner
+    # without leaving a hung job to burn GitHub's 360-minute default -- see the
+    # step-level timeout below for the tighter, more targeted guard.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Dependency decision (deliberate, not an oversight):
+      #
+      # - atuin: installed. It is cheap, and installing it is what actually
+      #   exercises import_atuin_history()'s real code path below (guarded by
+      #   `command -v atuin`, so without it that function -- and its
+      #   $TARGET_HOME/$HOME-scoping fix -- would never run in CI at all).
+      #
+      # - fzf-tab: deliberately NOT installed. Nothing in tests/ drives real
+      #   fzf-tab completion UI through a pty; the only coverage that exists
+      #   (test_completion_module_sources_cleanly_without_fzf_tab and friends
+      #   in tests/test_modules.sh) explicitly tests the *absent* path, and
+      #   already passes without it. Installing it would only add job time
+      #   for zero additional coverage.
+      #
+      # - liquidprompt: NOT installed here as a package -- it has no Homebrew
+      #   formula this repo uses (see Brewfile's note on the 2.2.1 pin vs.
+      #   Homebrew's 2.3.0). Instead, "Install the dotfiles" below runs the
+      #   real ./install.sh, which clones the pinned tag itself. That is what
+      #   this job is actually for: see that step for why it matters more
+      #   than it looks.
+      - name: Install shellcheck and atuin
+        run: brew install shellcheck atuin
+
+      - name: Lint shell scripts
+        run: shellcheck install.sh claude/statusline.sh tests/*.sh
+
+      - name: Check zsh syntax
+        run: for f in zsh/*.zsh prompt/*.zsh; do zsh -n "$f"; done
+
+      - name: Reject hardcoded home directories
+        run: |
+          # A fast, fail-early pass over the whole checked-out tree, broader
+          # than just zsh/prompt/claude/install.sh -- iterm2/Profile.json in
+          # particular is exactly the kind of file a live export smuggles a
+          # real /Users/<you> path into, and it lives outside those four
+          # directories.
+          #
+          # tests/ is excluded because tests/test_modules.sh's own
+          # test_no_hardcoded_home function embeds this same forbidden
+          # pattern as ITS OWN grep argument (a string literal, not a real
+          # leaked path) -- and, deliberately, so does the comment you are
+          # reading right now, which is why it is phrased without ever
+          # spelling that pattern out directly. That existing test already
+          # re-covers the same ground repo-wide (minus itself) as part of
+          # the "Run tests" step below, so nothing is actually skipped here,
+          # just de-duplicated with a clearer, fail-fast annotation.
+          #
+          # docs/ and .superpowers/ are excluded defensively for the same
+          # reason tests/test_no_hardcoded_home excludes them locally: both
+          # are gitignored planning artifacts that a clean checkout never
+          # has anyway, so this only matters if that ever changes.
+          if grep -rn '/Users/[a-z]' . \
+               --exclude-dir=.git --exclude-dir=tests \
+               --exclude-dir=docs --exclude-dir=.superpowers; then
+            echo "::error::hardcoded home directory found"
+            exit 1
+          fi
+
+      - name: Install the dotfiles
+        # Runs the real installer against this job's real (ephemeral, thrown
+        # away at the end of the job) $HOME -- not a --dry-run, and not a
+        # mktemp target. This is deliberate, not just Step 9's local
+        # end-to-end check moved into CI:
+        #
+        # tests/lib/harness.py's find_liquidprompt() looks for a real
+        # liquidprompt clone at ~/.local/share/liquidprompt/liquidprompt (the
+        # exact path install_liquidprompt() clones into) before falling back
+        # to ~/liquidprompt/liquidprompt. Without either, test_prompt_transient.py
+        # and test_prompt_two_line.py print "SKIP liquidprompt is not
+        # installed" and exit 0 -- a silent, structurally-invisible pass that
+        # exercises none of the transient/two-line prompt logic. That logic is
+        # the highest-risk, most complex code in this repo (the pty tests
+        # built around it are ~85% of the suite's runtime, and are called out
+        # below as the flake risk) -- CI must actually run it, not skip it.
+        # Running the real installer first is what makes that happen.
+        run: ./install.sh
+
+      - name: Run tests
+        # Local baseline: the full suite is ~68s, almost entirely two pty test
+        # files (test_prompt_transient.py, test_prompt_two_line.py) driving a
+        # real interactive zsh through fixed sleep windows. One unreproduced
+        # hang was observed in test_prompt_transient.py across roughly six
+        # otherwise-clean local runs -- cause unknown, never reproduced since.
+        # A hang there under GitHub's 360-minute job default would sit for six
+        # hours burning Actions minutes before anyone noticed. 5 minutes is
+        # generous headroom over the measured ~70s (room for a slower runner
+        # and for atuin/liquidprompt now genuinely being present, which was
+        # already the case for the timing measured locally) while still
+        # turning a hang into a clear, fast failure instead of a silent stall.
+        timeout-minutes: 5
+        run: ./tests/run.sh

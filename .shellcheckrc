@@ -1,0 +1,10 @@
+# SC2016 ("expressions don't expand in single quotes") is a false positive
+# throughout tests/: several tests deliberately build a zsh command string in
+# single quotes and hand it to a *different* shell (a `zsh -c` sub-invocation,
+# or a fake compinit interception) to expand there, not in this file's own
+# bash context. Expanding it here would be the actual bug. Disabled
+# repo-wide rather than per-line: the pattern recurs across test_loader.sh
+# and test_modules.sh, and CI's `shellcheck install.sh claude/statusline.sh
+# tests/*.sh` (.github/workflows/ci.yml) must stay green for a reason, not
+# because every one of these was individually silenced.
+disable=SC2016

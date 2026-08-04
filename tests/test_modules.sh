@@ -229,6 +229,35 @@ test_aliases_module_defines_flutter_shortcuts() {
   return 0
 }
 
+test_brewfile_lists_every_optional_tool() {
+  # install.sh's doctor points users at the Brewfile; it must actually cover
+  # everything the doctor reports as missing.
+  local tool
+  for tool in atuin fzf zoxide eza bat fd jq; do
+    grep -q "\"$tool\"" "$REPO/Brewfile" || {
+      echo "  Brewfile does not list $tool"; return 1; }
+  done
+  return 0
+}
+
+test_readme_documents_ohmyzsh_git_aliases() {
+  # 50-aliases.zsh deliberately defines no git aliases, so the README is the
+  # only place a user learns that gst/gaa/gp already exist.
+  #
+  # Matched against an actual markdown table row (`| `name` |`), not a bare
+  # backtick-wrapped substring anywhere in the file: the README's own "prefer
+  # gaa over git add *" callout also mentions `gaa` in backticks, so a
+  # substring-only check would keep passing even if the alias table row
+  # itself were deleted -- verified by deleting just that row and confirming
+  # a bare-substring version of this assertion still (wrongly) passed.
+  local a
+  for a in gst gaa gcmsg gp; do
+    grep -qE '\| `'"$a"'` \|' "$REPO/README.md" || {
+      echo "  README does not document $a in the git alias table"; return 1; }
+  done
+  return 0
+}
+
 test_aliases_module_sources_cleanly_with_nothing_installed() {
   # None of eza, bat, flutter or npm resolve on this PATH, so every guard in
   # the module is off. This exercises the "guard is the file's last
