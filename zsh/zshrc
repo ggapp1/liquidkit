@@ -14,10 +14,17 @@ done
 unset _dotfiles_module
 
 # Machine-local overrides. Never in the repo: may hold private paths or tokens.
-[[ -r "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
-
-# Guarantee this file's own exit status is always 0 when sourced. Without this,
-# the exit status of the (often-false) conditional above would leak out as the
-# exit status of `source zshrc` itself — harmless in an interactive shell, but
-# it makes `zsh -c "source zshrc"` look like a failure in test/CI contexts.
-true
+#
+# Deliberately an if/fi, not `[[ -r ... ]] && source ...`: this is the last
+# statement in the file, so its exit status becomes the exit status of
+# `source zshrc` itself. The && form is false (nonzero) whenever
+# .zshrc.local is merely absent — the common case — which would make
+# sourcing this file look like a failure to any caller that checks $?
+# (harmless interactively, but wrong under `zsh -c "source zshrc"` in
+# tests/CI, and it would mask a genuine failure from a module above).
+# An if/fi with no else is well-defined to exit 0 when the condition is
+# false, so a real error later in the chain can still propagate. Do not
+# "simplify" this back to `&&` — that reintroduces the leak.
+if [[ -r "$HOME/.zshrc.local" ]]; then
+  source "$HOME/.zshrc.local"
+fi
