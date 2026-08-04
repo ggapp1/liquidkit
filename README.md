@@ -10,7 +10,7 @@ liquidprompt has no transient prompt and no two-line mode. This adds both **on
 top of it**, without patching it — so you keep liquidprompt's segments and
 config and still get a prompt that gets out of the way. Around that sits a
 complete zsh setup: `eza`, `bat`, a Claude Code statusline, an installer that
-backs up everything it touches, and 75 tests.
+backs up everything it touches, and 82 tests.
 
 ![The liquidkit prompt: a powerline bar showing the time, a shortened path, the
 git branch with its dirty count, and the last command's runtime — with a bare ❯
@@ -54,7 +54,7 @@ The prompt module is dependency-free and extractable — see
 - **Claude Code statusline** — model, dir, branch, session cost, lines changed
 - **Safe installer** — timestamped backups, `--dry-run`, `--uninstall`
 - **Degrades gracefully** — every tool is optional; missing ones no-op, never error
-- **75 tests**, including a real-pty harness for the zle code
+- **82 tests**, including a real-pty harness for the zle code
 
 ## Requirements
 
@@ -157,10 +157,10 @@ inspecting zsh's `$galiases` and `$aliases` tables directly.)
 
 ## Claude Code statusline
 
-Add to `~/.claude/settings.json`:
+Add to `~/.claude/settings.json`, using an absolute path:
 
 ```json
-{ "statusLine": { "type": "command", "command": "~/.claude/statusline.sh" } }
+{ "statusLine": { "type": "command", "command": "/Users/you/.claude/statusline.sh" } }
 ```
 
 ```
