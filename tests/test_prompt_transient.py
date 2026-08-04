@@ -79,15 +79,32 @@ def test_multiline_command_still_runs():
 
 
 def test_ctrl_c_does_not_hang_shell():
+    # `Shell.read()` performs a real os.read() and therefore drains the pty's
+    # kernel buffer: whatever was printed during a window that gets read but
+    # not accumulated into `out` is gone for good, not just unread -- no later
+    # read() can ever see it again. A previous version of this test read the
+    # 0.8s window right after Ctrl-C (exactly where a wrongly-executed
+    # NEVER_RUN would print) and discarded it, capturing only what came after
+    # the *next* command was sent. That made the assertion below structurally
+    # unable to catch the regression it exists to catch -- confirmed by
+    # re-applying the "unconditional accept-line" break to the real plugin
+    # and observing the discarding version pass all three times regardless
+    # (see task-8-report.md). Every window from the moment Ctrl-C is sent is
+    # now accumulated into `out`.
     zdotdir = make_zdotdir(REPO, modules=[], extra=EXTRA)
     with Shell(zdotdir) as sh:
         sh.read(2.0)
         sh.send("echo NEVER_RUN")
+        sh.read(0.6)
         sh.send("\x03")                    # Ctrl-C
-        sh.read(0.8)
-        sh.send("echo AFTER_INTERRUPT\n")
-        out = strip_ansi(sh.read(2.0))
-    assert "AFTER_INTERRUPT" in out, f"shell unusable after Ctrl-C: {out!r}"
+        raw = sh.read(0.8)                 # capture, do not discard
+        sh.send("echo AFTER_INTERRUPT_$((6*7))\n")
+        raw += sh.read(2.0)
+    out = strip_ansi(raw)
+    # A computed value, not a keystroke echo of anything we sent, so the pty
+    # echoing our own typed text back at us cannot satisfy this assertion --
+    # same reasoning as the multiline/RPROMPT tests above.
+    assert "AFTER_INTERRUPT_42" in out, f"shell unusable after Ctrl-C: {out!r}"
     # strip_ansi deletes every bare "\r" (see its regex), so a prior version
     # of this check -- "NEVER_RUN\r" not in out -- could never fail: there is
     # no "\r" left in `out` at all, stripped or not. strip_ansi does collapse
