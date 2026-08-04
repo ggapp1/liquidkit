@@ -66,8 +66,22 @@ else
   c_off=$'\e[0m'
 fi
 
-# Cost segment is opt-out, so the repo keeps the feature while an individual can
-# switch it off:  "command": "LIQUIDKIT_STATUSLINE_COST=0 ~/.claude/statusline.sh"
+# --- settings ----------------------------------------------------------------
+# Read from an optional config file rather than requiring an env-var prefix on
+# the registered command. A prefix like
+#   "command": "LIQUIDKIT_STATUSLINE_COST=0 ~/.claude/statusline.sh"
+# only works if the host runs the command through a shell. Executed directly it
+# fails outright -- "LIQUIDKIT_STATUSLINE_COST=0" is looked up as a program
+# name, and ~ is never expanded either. A bare absolute path plus this file
+# works under both, so the registered command has nothing to go wrong in it.
+#
+# Environment still wins where it is set, so a shell-based host can override
+# per-invocation.
+_lk_env_cost="${LIQUIDKIT_STATUSLINE_COST-}"
+_lk_conf="${XDG_CONFIG_HOME:-$HOME/.config}/liquidkit/statusline.conf"
+# shellcheck source=/dev/null
+[[ -r "$_lk_conf" ]] && . "$_lk_conf" 2>/dev/null
+[[ -n "$_lk_env_cost" ]] && LIQUIDKIT_STATUSLINE_COST="$_lk_env_cost"
 : "${LIQUIDKIT_STATUSLINE_COST:=1}"
 
 model="$(field '.model.display_name')"

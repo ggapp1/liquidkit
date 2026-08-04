@@ -170,12 +170,24 @@ Opus 5 | liquidkit main | $1.23 | +42/-7
 Model, directory, git branch, session cost and lines changed — colourised, and
 honouring [`NO_COLOR`](https://no-color.org).
 
-Hide the cost segment by setting `LIQUIDKIT_STATUSLINE_COST=0` in the command:
+Hide the cost segment with a config file at
+`~/.config/liquidkit/statusline.conf`:
+
+```sh
+LIQUIDKIT_STATUSLINE_COST=0
+```
+
+Register the script by **absolute path, with no environment prefix**:
 
 ```json
-{ "statusLine": { "type": "command",
-                  "command": "LIQUIDKIT_STATUSLINE_COST=0 ~/.claude/statusline.sh" } }
+{ "statusLine": { "type": "command", "command": "/Users/you/.claude/statusline.sh" } }
 ```
+
+> A prefixed form like `"VAR=0 ~/.claude/statusline.sh"` only works if the host
+> runs the command through a shell. Executed directly it fails outright — `VAR=0`
+> is looked up as a program name, and `~` is never expanded. The config file
+> keeps the registered command free of anything that can go wrong. Environment
+> variables still override it where a shell is involved.
 
 Two display details worth knowing:
 
