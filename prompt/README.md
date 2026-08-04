@@ -3,6 +3,9 @@
 Two-line and transient prompt support for [liquidprompt](https://github.com/liquidprompt/liquidprompt) 2.2.1,
 which offers neither. Self-contained: depends on liquidprompt and nothing else.
 
+Part of [liquidkit](../README.md), but usable on its own — copy
+`liquidprompt-transient.plugin.zsh` anywhere and source it.
+
 ## Use
 
 ```zsh
@@ -44,20 +47,25 @@ nobody rediscovers it.
 
 ## Bracketed paste
 
-Taking over `zle-line-init` and driving the editor through `.recursive-edit`
-moves the actual typing window outside zsh's normal bracketed-paste pairing.
-zsh only wraps its *own* built-in line-init/line-finish with the
-enable/disable escape sequences — it enables bracketed paste once
-`zle-line-init` returns, and this plugin never lets it return until the line
-is finished, because `.recursive-edit` runs the entire edit session from
-inside our own `zle-line-init` widget. Verified with a raw escape-sequence
-trace: without an explicit fix, paste mode is **off** for the entire time the
-user is typing, where normally it would be on. The practical effect is bad —
-pasting multi-line text has each line auto-executed as soon as it's inserted,
-instead of landing in the buffer as a block of text — so the plugin
-explicitly re-enables bracketed paste around the `.recursive-edit` call
-(`$zle_bracketed_paste[1]` before, `$zle_bracketed_paste[2]` after), the same
-fix starship uses for the same underlying reason.
+zsh enables bracketed paste only *after* `zle-line-init` returns — and this
+plugin never lets it return until the line is finished, because
+`.recursive-edit` runs the whole edit session from inside our own
+`zle-line-init` widget.
+
+So without a fix, paste mode is **off** for the entire time you are typing.
+Confirmed with a raw escape-sequence trace:
+
+```
+transient OFF:  init=[h]   ← bracketed paste enabled while typing
+transient ON:   init=[]    ← never enabled
+```
+
+The practical effect is bad: pasting multi-line text auto-executes every line
+as it arrives, instead of landing in the buffer as a block.
+
+The plugin therefore re-enables it explicitly around the `.recursive-edit`
+call — `$zle_bracketed_paste[1]` before, `$zle_bracketed_paste[2]` after —
+the same fix starship applies for the same underlying reason.
 
 ## vi-mode
 
