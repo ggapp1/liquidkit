@@ -51,3 +51,33 @@ test_no_hardcoded_home() {
           --include='*.json' --include='*.md' 2>/dev/null | grep -v '^.*docs/' | grep -v '^.*\.superpowers/' | grep -v '^.*test_modules\.sh:' || true)"
   [[ -z "$hits" ]] || { echo "  hardcoded home found:"; echo "$hits"; return 1; }
 }
+
+test_fzf_module_precedes_history_module() {
+  # The Ctrl-R ordering constraint, asserted structurally so a future rename
+  # or renumber trips the test rather than silently breaking atuin.
+  local fzf_num hist_num
+  fzf_num="$(basename "$REPO"/zsh/*-fzf.zsh | cut -d- -f1)"
+  hist_num="$(basename "$REPO"/zsh/*-history.zsh | cut -d- -f1)"
+  [[ "$fzf_num" -lt "$hist_num" ]] || {
+    echo "  fzf module ($fzf_num) must load before history ($hist_num): both bind Ctrl-R"
+    return 1; }
+}
+
+test_history_module_sets_options() {
+  local out
+  # NOTE: bare `setopt` prints option names with underscores stripped
+  # (e.g. "histignorealldups"), so `grep -c hist_ignore_all_dups` against it
+  # never matches regardless of whether the option is set. Use zsh's `-o`
+  # option-test operator instead, which accepts the underscored form.
+  out="$(source_module 20-history.zsh 'print -r -- $HISTSIZE; [[ -o hist_ignore_all_dups ]] && print 1 || print 0')"
+  local size; size="$(echo "$out" | head -1)"
+  [[ "$size" == "100000" ]] || { echo "  HISTSIZE was '$size', expected 100000"; return 1; }
+  local dups; dups="$(echo "$out" | tail -1)"
+  [[ "$dups" == "1" ]] || { echo "  HIST_IGNORE_ALL_DUPS not set"; return 1; }
+}
+
+test_history_module_sources_cleanly_without_atuin() {
+  # PATH emptied of atuin: the module must degrade, not error.
+  zsh -c "set -e; DOTFILES_DIR='$REPO'; atuin() { return 127 }; source '$REPO/zsh/20-history.zsh'" \
+    || { echo "  20-history.zsh errored without atuin"; return 1; }
+}
