@@ -117,3 +117,78 @@ test_completion_module_runs_compinit() {
   out="$(source_module 30-completion.zsh 'print -r -- ${+functions[compdef]}')"
   [[ "$out" == "1" ]] || { echo "  compinit did not run (compdef undefined)"; return 1; }
 }
+
+# The four tests below distinguish which branch (`compinit` full vs.
+# `compinit -C` fast) actually fires. Both branches leave compdef defined,
+# so a compdef-only assertion (as above) cannot tell them apart -- that gap
+# is exactly what let the once-a-day freshness check silently regress to
+# "always full" when EXTENDED_GLOB wasn't armed.
+#
+# Observation strategy: prepend a scratch directory to $fpath containing a
+# fake `compinit` autoload file that just records its own arguments. Since
+# the module's own `autoload -Uz compinit` resolves lazily against $fpath at
+# call time, this intercepts the module's *real* branch-selection call
+# (`compinit` vs `compinit -C`) directly -- not an inference from a side
+# effect like compdef being defined, and not a reimplementation of the
+# condition elsewhere that could drift from the real file.
+#
+# An earlier version of these tests used `zsh -x` to trace the anonymous
+# function's call sites instead. That correctly distinguished the branches
+# in isolation, but the FULL compinit path scans the real system fpath
+# (thousands of files under /usr/share/zsh/*/functions), and tracing that
+# multiplies the cost enormously -- one test run alone exceeded the 120s
+# harness timeout. The interception approach never runs the real compinit
+# body at all, so it is fast regardless of which branch fires. Each test
+# uses a scratch $HOME (never the real one) so the fixture's .zcompdump
+# mtime/existence is fully controlled.
+_completion_module_observe_compinit_call() {
+  # Sources 30-completion.zsh with a fake `compinit` shadowing the real one
+  # via $fpath, and prints exactly what it was called with:
+  #   "CALLED:"      -- compinit invoked with no arguments (full path)
+  #   "CALLED:-C"    -- compinit invoked with -C (fast path)
+  #   "NOT-CALLED"   -- compinit was never invoked at all
+  # $1: shell command to run against $tmp to set up (or omit) .zcompdump
+  local tmp; tmp="$(mktemp -d)"
+  local fake="$tmp/fakefpath"; mkdir -p "$fake"
+  printf 'print -r -- "CALLED:$*" >> "%s/calls.log"\n' "$tmp" > "$fake/compinit"
+  eval "$1"
+  local err
+  err="$(HOME="$tmp" zsh -c "set -e; fpath=('$fake' \$fpath); DOTFILES_DIR='$REPO'; source '$REPO/zsh/30-completion.zsh'" 2>&1 1>/dev/null)"
+  if [[ -n "$err" ]]; then
+    echo "  30-completion.zsh errored during observation: $err"
+  fi
+  if [[ -s "$tmp/calls.log" ]]; then
+    cat "$tmp/calls.log"
+  else
+    echo "NOT-CALLED"
+  fi
+  rm -rf "$tmp"
+}
+
+test_completion_module_takes_fast_path_for_fresh_dump() {
+  local call; call="$(_completion_module_observe_compinit_call 'touch "$tmp/.zcompdump"')"
+  [[ "$call" == "CALLED:-C" ]] || {
+    echo "  fresh .zcompdump: expected 'CALLED:-C', got '$call'"; return 1; }
+}
+
+test_completion_module_takes_full_path_for_stale_dump() {
+  local call
+  call="$(_completion_module_observe_compinit_call 'touch -t 202001010000 "$tmp/.zcompdump"')"   # mtime far in the past: >24h stale
+  [[ "$call" == "CALLED:" ]] || {
+    echo "  stale .zcompdump: expected 'CALLED:' (full compinit, no args), got '$call'"; return 1; }
+}
+
+test_completion_module_takes_full_path_for_missing_dump() {
+  local call; call="$(_completion_module_observe_compinit_call 'true')"   # no .zcompdump created at all
+  [[ "$call" == "CALLED:" ]] || {
+    echo "  missing .zcompdump: expected 'CALLED:' (full compinit, no args), got '$call'"; return 1; }
+}
+
+test_completion_module_does_not_leak_extended_glob() {
+  local tmp; tmp="$(mktemp -d)"
+  touch "$tmp/.zcompdump"
+  local out
+  out="$(HOME="$tmp" zsh -c "set -e; DOTFILES_DIR='$REPO'; source '$REPO/zsh/30-completion.zsh'; [[ -o extendedglob ]] && print LEAKED || print OK")"
+  rm -rf "$tmp"
+  [[ "$out" == "OK" ]] || { echo "  EXTENDED_GLOB leaked into the sourcing shell"; return 1; }
+}

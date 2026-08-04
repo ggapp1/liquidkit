@@ -7,11 +7,31 @@
 autoload -Uz compinit
 
 # Rebuild the completion dump at most once a day; checking every start is slow.
-if [[ -n "$HOME/.zcompdump"(#qN.mh+24) ]]; then
-  compinit
-else
-  compinit -C          # trust the existing dump, skip security checks
-fi
+#
+# The `(#qN.mh+24)` glob qualifier is only parsed as a qualifier when
+# EXTENDED_GLOB is set. It is not set by default, and nothing upstream of
+# this module sets it either -- without it, `(#qN.mh+24)` is inert trailing
+# text, the `[[ -n ... ]]` test is always true, and `compinit` (the slow,
+# full path) runs unconditionally, defeating the freshness check silently.
+# `emulate -L zsh; setopt EXTENDED_GLOB` scopes the option to this anonymous
+# function only, so it does not leak into the interactive shell that sources
+# this module.
+#
+# The nullglob qualifier (N) means a missing dump file makes the glob
+# expression evaluate to empty, i.e. `[[ -n ... ]]` is FALSE -- so on its
+# own, a missing dump would take the "trust it" branch rather than the full
+# rebuild, which is backwards. The explicit `! -f` check below handles that
+# case up front (short-circuiting before the glob qualifier ever runs), so
+# "missing" is treated the same as "stale".
+() {
+  emulate -L zsh
+  setopt EXTENDED_GLOB
+  if [[ ! -f "$HOME/.zcompdump" || -n "$HOME/.zcompdump"(#qN.mh+24) ]]; then
+    compinit            # dump missing, or older than 24h: full run, with security checks
+  else
+    compinit -C          # dump is fresh: trust it, skip the checks
+  fi
+}
 
 zstyle ':completion:*' menu no                    # fzf-tab replaces the built-in menu
 zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'   # case-insensitive
